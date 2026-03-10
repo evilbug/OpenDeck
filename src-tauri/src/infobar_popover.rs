@@ -3,7 +3,7 @@ use base64::{Engine as _, engine::general_purpose};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
 use dashmap::DashMap;
@@ -23,7 +23,7 @@ const TRACK: Rgba<u8> = Rgba([60, 60, 60, 255]);
 
 /// A component descriptor that plugins send to the backend to request a
 /// rendered popover image for the infobar LCD.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum InfobarComponent {
 	/// A single line of text centred vertically.
@@ -37,6 +37,15 @@ pub enum InfobarComponent {
 		/// Base-64 data URI of the thumbnail (`data:<mime>;base64,…`).
 		image: String,
 		text: String,
+	},
+
+	/// A permanent-style infobar layout with an image scaled to the infobar
+	/// height on the left, a large title on the first line, and a smaller
+	/// subtitle on the second line.
+	ImageTitleSubtitle {
+		image: String,
+		title: String,
+		subtitle: String,
 	},
 
 	/// A label + numeric value on the top row with a filled progress bar on
@@ -113,6 +122,14 @@ pub fn get_scroll_width(component: &InfobarComponent) -> f32 {
 			let max_text_width = (WIDTH - 58 - 6) as f32;
 			let full_w = text_width(&font, scale, text);
 			(full_w - max_text_width).max(0.0)
+		}
+		InfobarComponent::ImageTitleSubtitle { title, subtitle, .. } => {
+			let title_scale = PxScale { x: 22.0, y: 22.0 };
+			let subtitle_scale = PxScale { x: 14.0, y: 14.0 };
+			let max_text_width = (WIDTH - HEIGHT - 6) as f32;
+			let title_overflow = (text_width(&font, title_scale, title) - max_text_width).max(0.0);
+			let subtitle_overflow = (text_width(&font, subtitle_scale, subtitle) - max_text_width).max(0.0);
+			title_overflow.max(subtitle_overflow)
 		}
 		InfobarComponent::ProgressBar { label, value, .. } => {
 			let scale = PxScale { x: 22.0, y: 22.0 };
@@ -231,6 +248,45 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 			} else {
 				let display = truncate(&font, scale, text, max_text_width);
 				draw_text_mut(&mut img, FG, 60, 17, scale, &font, &display);
+			}
+		}
+
+		InfobarComponent::ImageTitleSubtitle { image: image_data, title, subtitle } => {
+			if THUMBNAIL_CACHE.len() > 100 {
+				THUMBNAIL_CACHE.clear();
+			}
+			let thumb = if let Some(cached) = THUMBNAIL_CACHE.get(image_data) {
+				cached.clone()
+			} else {
+				let raw = image_data.split_once(',').map(|(_, b)| b).unwrap_or(image_data.as_str());
+				let bytes = general_purpose::STANDARD.decode(raw)?;
+				let dynamic = image::load_from_memory(&bytes)?;
+				let processed = dynamic
+					.resize(u32::MAX, HEIGHT, image::imageops::FilterType::Lanczos3)
+					.into_rgba8();
+				THUMBNAIL_CACHE.insert(image_data.clone(), processed.clone());
+				processed
+			};
+			image::imageops::overlay(&mut img, &thumb, 0, ((HEIGHT as i64 - thumb.height() as i64) / 2).max(0));
+
+			let text_x = (thumb.width() as i32 + 6).min(WIDTH as i32 - 10);
+			let max_text_width = ((WIDTH as i32) - text_x - 4).max(10) as f32;
+			let title_scale = PxScale { x: 22.0, y: 22.0 };
+			let subtitle_scale = PxScale { x: 14.0, y: 14.0 };
+
+			if let Some(off) = offset {
+				let mut title_img = RgbaImage::new(max_text_width as u32, title_scale.y as u32 + 8);
+				draw_text_mut(&mut title_img, FG, -(off as i32), 0, title_scale, &font, title);
+				image::imageops::overlay(&mut img, &title_img, text_x as i64, 5);
+
+				let mut subtitle_img = RgbaImage::new(max_text_width as u32, subtitle_scale.y as u32 + 8);
+				draw_text_mut(&mut subtitle_img, FG, -(off as i32), 0, subtitle_scale, &font, subtitle);
+				image::imageops::overlay(&mut img, &subtitle_img, text_x as i64, 31);
+			} else {
+				let display_title = truncate(&font, title_scale, title, max_text_width);
+				let display_subtitle = truncate(&font, subtitle_scale, subtitle, max_text_width);
+				draw_text_mut(&mut img, FG, text_x, 5, title_scale, &font, &display_title);
+				draw_text_mut(&mut img, FG, text_x, 31, subtitle_scale, &font, &display_subtitle);
 			}
 		}
 

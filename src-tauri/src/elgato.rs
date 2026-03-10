@@ -18,6 +18,11 @@ static ELGATO_DEVICES: LazyLock<RwLock<HashMap<String, AsyncStreamDeck>>> = Lazy
 static HIDAPI: LazyLock<RwLock<Option<Arc<hidapi::HidApi>>>> = LazyLock::new(|| RwLock::new(None));
 
 static SCROLL_TASKS: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
+static COMPONENT_SCROLL_STATE: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
+
+pub fn clear_infobar_component_scroll_state(device: &str, position: u8) {
+	COMPONENT_SCROLL_STATE.remove(&(device.to_owned(), position));
+}
 
 /// Extract the average colour from an image.
 fn extract_average_colour(img: &image::DynamicImage) -> (u8, u8, u8) {
@@ -50,7 +55,111 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 			let base_uri = crate::shared::INFOBAR_IMAGES.get(&(context.device.clone(), context.position)).map(|v| v.clone());
 			
 			let mut base_img = image::RgbaImage::new(w, h);
-			if let Some(uri) = base_uri {
+			if let Some(component) = crate::shared::INFOBAR_COMPONENTS.get(&(context.device.clone(), context.position)).map(|v| v.clone()) {
+				if let Ok(component_uri) = crate::infobar_popover::render_component(&component) {
+					let bytes = base64::engine::general_purpose::STANDARD.decode(component_uri.split_once(',').unwrap().1)?;
+					let dynamic = image::load_from_memory(&bytes)?;
+					base_img = if dynamic.width() == w && dynamic.height() == h {
+						dynamic.into_rgba8()
+					} else {
+						dynamic.resize_exact(w, h, image::imageops::FilterType::Lanczos3).into_rgba8()
+					};
+				}
+
+				let scroll_width = crate::infobar_popover::get_scroll_width(&component);
+				let signature = serde_json::to_string(&component).unwrap_or_default();
+				if scroll_width > 0.0 {
+					let already_scrolled = COMPONENT_SCROLL_STATE
+						.get(&(context.device.clone(), context.position))
+						.as_deref()
+						== Some(&signature);
+					if !already_scrolled {
+						COMPONENT_SCROLL_STATE.insert((context.device.clone(), context.position), signature.clone());
+						let ctx = context.clone();
+						let component_clone = component.clone();
+						let signature_clone = signature.clone();
+						tokio::spawn(async move {
+							tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+							let step_size = 5.0f32;
+							let steps = (scroll_width / step_size).ceil() as u32;
+							for step in 1..=steps {
+								if COMPONENT_SCROLL_STATE
+									.get(&(ctx.device.clone(), ctx.position))
+									.as_deref()
+									!= Some(&signature_clone)
+								{
+									return;
+								}
+								let offset = (step as f32 * step_size).min(scroll_width);
+								if let Ok(frame_uri) = crate::infobar_popover::render_component_at(&component_clone, Some(offset)) {
+									if let Some(device) = ELGATO_DEVICES.read().await.get(&ctx.device) {
+										let mut scroll_img = image::RgbaImage::new(w, h);
+										let frame_bytes = base64::engine::general_purpose::STANDARD.decode(frame_uri.split_once(',').unwrap().1).unwrap();
+										let frame = image::load_from_memory(&frame_bytes).unwrap().into_rgba8();
+										image::imageops::overlay(&mut scroll_img, &frame, 0, 0);
+
+										if let Some(entries) = crate::infobar_overlay::OVERLAYS.get(&(ctx.device.clone(), ctx.position)) {
+											let now = std::time::Instant::now();
+											for entry in entries.values() {
+												if entry.expires_at.is_none_or(|exp| exp > now) {
+													if let Some(c) = INFOBAR_OVERLAY_CACHE.get(&(ctx.device.clone(), ctx.position, entry.id)) && c.0 == entry.image {
+														image::imageops::overlay(&mut scroll_img, &c.1, 0, 0);
+														break;
+													}
+												}
+											}
+										}
+
+										if device.kind() == Kind::Plus {
+											let _ = device.write_lcd(ctx.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(scroll_img)).unwrap()).await;
+										} else if device.kind() == Kind::Neo {
+											let format = device.kind().lcd_image_format().unwrap();
+											let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(scroll_img)).unwrap();
+											let _ = device.write_lcd_fill(&data).await;
+										}
+										let _ = device.flush().await;
+									}
+								}
+								tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+							}
+							tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+							if COMPONENT_SCROLL_STATE
+								.get(&(ctx.device.clone(), ctx.position))
+								.as_deref()
+								== Some(&signature_clone)
+								&& let Ok(frame_uri) = crate::infobar_popover::render_component(&component_clone)
+								&& let Some(device) = ELGATO_DEVICES.read().await.get(&ctx.device)
+							{
+								let mut final_img = image::RgbaImage::new(w, h);
+								let frame_bytes = base64::engine::general_purpose::STANDARD.decode(frame_uri.split_once(',').unwrap().1).unwrap();
+								let frame = image::load_from_memory(&frame_bytes).unwrap().into_rgba8();
+								image::imageops::overlay(&mut final_img, &frame, 0, 0);
+
+								if let Some(entries) = crate::infobar_overlay::OVERLAYS.get(&(ctx.device.clone(), ctx.position)) {
+									let now = std::time::Instant::now();
+									for entry in entries.values() {
+										if entry.expires_at.is_none_or(|exp| exp > now) {
+											if let Some(c) = INFOBAR_OVERLAY_CACHE.get(&(ctx.device.clone(), ctx.position, entry.id)) && c.0 == entry.image {
+												image::imageops::overlay(&mut final_img, &c.1, 0, 0);
+												break;
+											}
+										}
+									}
+								}
+
+								if device.kind() == Kind::Plus {
+									let _ = device.write_lcd(ctx.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(final_img)).unwrap()).await;
+								} else if device.kind() == Kind::Neo {
+									let format = device.kind().lcd_image_format().unwrap();
+									let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(final_img)).unwrap();
+									let _ = device.write_lcd_fill(&data).await;
+								}
+								let _ = device.flush().await;
+							}
+						});
+					}
+				}
+			} else if let Some(uri) = base_uri {
 				if INFOBAR_BASE_CACHE.len() > 100 {
 					INFOBAR_BASE_CACHE.clear();
 				}
@@ -70,8 +179,11 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 				}
 			}
 
-			// Render text from INFOBAR_TEXT if present.
-			if let Some(text) = crate::shared::INFOBAR_TEXT.get(&(context.device.clone(), context.position)) && !text.is_empty() {
+			// Render text from INFOBAR_TEXT if present and no component is active.
+			if !crate::shared::INFOBAR_COMPONENTS.contains_key(&(context.device.clone(), context.position))
+				&& let Some(text) = crate::shared::INFOBAR_TEXT.get(&(context.device.clone(), context.position))
+				&& !text.is_empty()
+			{
 				let component = crate::infobar_popover::InfobarComponent::Text { text: text.clone() };
 				let scroll_width = crate::infobar_popover::get_scroll_width(&component);
 				

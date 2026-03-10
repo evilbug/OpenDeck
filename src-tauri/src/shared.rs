@@ -46,6 +46,8 @@ pub struct DeviceInfo {
 pub static DEVICES: LazyLock<DashMap<String, DeviceInfo>> = LazyLock::new(DashMap::new);
 pub static INFOBAR_IMAGES: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
 pub static INFOBAR_TEXT: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
+pub static INFOBAR_COMPONENTS: LazyLock<DashMap<(String, u8), crate::infobar_popover::InfobarComponent>> =
+	LazyLock::new(DashMap::new);
 
 /// Get the application configuration directory.
 pub fn config_dir() -> std::path::PathBuf {

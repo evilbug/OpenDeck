@@ -1,5 +1,7 @@
 use super::PayloadEvent;
 
+use crate::events::frontend::instances::update_state;
+use crate::store::profiles::acquire_locks_mut;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -44,6 +46,29 @@ pub async fn set_infobar_image(event: PayloadEvent<SetInfobarImagePayload>) -> R
 #[derive(Deserialize)]
 pub struct ClearInfobarOverlayPayload {
 	pub context: crate::shared::ActionContext,
+}
+
+#[derive(Deserialize)]
+pub struct SetInfobarComponentPayload {
+	pub context: crate::shared::ActionContext,
+	pub component: crate::infobar_popover::InfobarComponent,
+}
+
+pub async fn set_infobar_component(event: PayloadEvent<SetInfobarComponentPayload>) -> Result<(), anyhow::Error> {
+	let p = event.payload;
+	crate::shared::INFOBAR_COMPONENTS.insert((p.context.device.clone(), p.context.position), p.component);
+
+	let mut locks = acquire_locks_mut().await;
+	update_state(crate::APP_HANDLE.get().unwrap(), p.context.clone(), &mut locks).await?;
+
+	let context = crate::shared::Context {
+		device: p.context.device,
+		profile: p.context.profile,
+		controller: p.context.controller,
+		position: p.context.position,
+	};
+	let _ = crate::elgato::update_image(&context, None).await;
+	Ok(())
 }
 
 /// Remove all overlays at a position and rerender from the stored action image.

@@ -47,6 +47,8 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
+		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
+		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
@@ -98,6 +100,8 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
+		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
+		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
@@ -127,6 +131,8 @@ pub async fn set_state(event: ContextAndPayloadEvent<SetStatePayload>) -> Result
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
+		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
+		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
