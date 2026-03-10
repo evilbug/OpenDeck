@@ -4,6 +4,9 @@
 mod application_watcher;
 mod elgato;
 mod events;
+mod infobar_overlay;
+mod infobar_popover;
+mod infobar_stack;
 mod plugins;
 mod shared;
 mod store;
@@ -76,6 +79,7 @@ async fn main() {
 			frontend::get_fonts,
 			frontend::instances::create_instance,
 			frontend::instances::move_instance,
+			frontend::instances::reorder_child_instance,
 			frontend::instances::remove_instance,
 			frontend::instances::set_state,
 			frontend::instances::update_image,

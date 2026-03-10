@@ -101,6 +101,12 @@
 		</div>
 
 		<div class="flex flex-row items-center m-2 space-x-2">
+			<span class="text-neutral-400"> Show profile switch on infodisplay: </span>
+			<input type="checkbox" bind:checked={$settings.show_profile_switch_pill} />
+			<Tooltip>When enabled, switching profiles shows a short pill notification on attached Stream Deck infodisplays.</Tooltip>
+		</div>
+
+		<div class="flex flex-row items-center m-2 space-x-2">
 			<span class="text-neutral-400"> Contribute statistics: </span>
 			<input type="checkbox" bind:checked={$settings.statistics} />
 		</div>

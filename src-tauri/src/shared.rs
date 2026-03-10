@@ -228,7 +228,7 @@ pub struct Context {
 }
 
 /// Information about the slot and index an instance is located in.
-#[derive(Clone, PartialEq, Eq, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
+#[derive(Clone, PartialEq, Eq, Hash, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
 pub struct ActionContext {
 	pub device: String,
 	pub profile: String,
@@ -344,6 +344,19 @@ pub static CATEGORIES: LazyLock<RwLock<HashMap<String, Category>>> = LazyLock::n
 						"tooltip": "Cycle through multiple actions",
 						"controllers": [ "Keypad" ],
 						"states": [ { "image": "opendeck/toggle-action.png" } ],
+						"supported_in_multi_actions": false
+					}
+				))
+				.unwrap(),
+				serde_json::from_value(serde_json::json!(
+					{
+						"name": "Infobar Stack",
+						"icon": "opendeck/multi-action.png",
+						"plugin": "opendeck",
+						"uuid": "opendeck.infobarstack",
+						"tooltip": "Show the highest-priority infobar widget that currently wants to be visible",
+						"controllers": [ "Infobar" ],
+						"states": [ { "image": "opendeck/multi-action.png" } ],
 						"supported_in_multi_actions": false
 					}
 				))

@@ -2,6 +2,7 @@ pub mod applications;
 pub mod deep_link;
 pub mod devices;
 pub mod encoder;
+pub mod infobar;
 pub mod keypad;
 pub mod property_inspector;
 pub mod settings;

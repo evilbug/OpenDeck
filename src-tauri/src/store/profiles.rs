@@ -302,9 +302,21 @@ pub async fn get_slot_mut<'a>(context: &crate::shared::Context, locks: &'a mut L
 	let store = locks.profile_stores.get_profile_store_mut(&device, &context.profile).await?;
 
 	let configured = match &context.controller[..] {
-		"Encoder" => store.value.sliders.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Encoder", context.position))?,
-		"Infobar" => store.value.infobar.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Infobar", context.position))?,
-		_ => store.value.keys.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Keypad", context.position))?,
+		"Encoder" => store
+			.value
+			.sliders
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Encoder", context.position))?,
+		"Infobar" => store
+			.value
+			.infobar
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Infobar", context.position))?,
+		_ => store
+			.value
+			.keys
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Keypad", context.position))?,
 	};
 
 	Ok(configured)

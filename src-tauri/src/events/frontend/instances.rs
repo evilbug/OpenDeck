@@ -16,29 +16,48 @@ pub async fn create_instance(app: AppHandle, action: Action, context: Context) -
 	let slot = get_slot_mut(&context, &mut locks).await?;
 
 	if let Some(parent) = slot {
-		let Some(children) = &mut parent.children else { return Ok(None) };
-		let index = match children.last() {
-			None => 1,
-			Some(instance) => instance.context.index + 1,
+		let (instance, parent_context, should_update_parent) = {
+			if parent.children.is_none()
+				&& matches!(
+					parent.action.uuid.as_str(),
+					"opendeck.multiaction" | "opendeck.toggleaction" | crate::infobar_stack::ACTION_UUID
+				)
+			{
+				parent.children = Some(vec![]);
+			}
+
+			let Some(children) = &mut parent.children else { return Ok(None) };
+			let index = match children.last() {
+				None => 1,
+				Some(instance) => instance.context.index + 1,
+			};
+
+			let instance = ActionInstance {
+				action: action.clone(),
+				context: ActionContext::from_context(context.clone(), index),
+				states: action.states.clone(),
+				current_state: 0,
+				settings: serde_json::Value::Object(serde_json::Map::new()),
+				children: None,
+			};
+			children.push(instance.clone());
+			renumber_children(&context, children);
+
+			let should_update_parent = parent.action.uuid == "opendeck.toggleaction" && parent.states.len() < children.len();
+			if should_update_parent {
+				parent.states.push(crate::shared::ActionState {
+					image: "opendeck/toggle-action.png".to_owned(),
+					..Default::default()
+				});
+			}
+
+			(instance, parent.context.clone(), should_update_parent)
 		};
 
-		let instance = ActionInstance {
-			action: action.clone(),
-			context: ActionContext::from_context(context.clone(), index),
-			states: action.states.clone(),
-			current_state: 0,
-			settings: serde_json::Value::Object(serde_json::Map::new()),
-			children: None,
-		};
-		children.push(instance.clone());
-
-		if parent.action.uuid == "opendeck.toggleaction" && parent.states.len() < children.len() {
-			parent.states.push(crate::shared::ActionState {
-				image: "opendeck/toggle-action.png".to_owned(),
-				..Default::default()
-			});
-			let _ = update_state(&app, parent.context.clone(), &mut locks).await;
+		if should_update_parent {
+			let _ = update_state(&app, parent_context, &mut locks).await;
 		}
+		let _ = sync_infobar_stack_and_emit(&app, context.clone(), &mut locks).await;
 
 		save_profile(&context.device, &mut locks).await?;
 		let _ = crate::events::outbound::will_appear::will_appear(&instance).await;
@@ -51,15 +70,18 @@ pub async fn create_instance(app: AppHandle, action: Action, context: Context) -
 			states: action.states.clone(),
 			current_state: 0,
 			settings: serde_json::Value::Object(serde_json::Map::new()),
-			children: if matches!(action.uuid.as_str(), "opendeck.multiaction" | "opendeck.toggleaction") {
+			children: if matches!(action.uuid.as_str(), "opendeck.multiaction" | "opendeck.toggleaction" | crate::infobar_stack::ACTION_UUID) {
 				Some(vec![])
 			} else {
 				None
 			},
 		};
 
-		*slot = Some(instance.clone());
-		let slot = slot.clone();
+		let slot = {
+			*slot = Some(instance.clone());
+			slot.clone()
+		};
+		let _ = sync_infobar_stack_and_emit(&app, context.clone(), &mut locks).await;
 
 		save_profile(&context.device, &mut locks).await?;
 		let _ = crate::events::outbound::will_appear::will_appear(&instance).await;
@@ -74,6 +96,19 @@ fn instance_images_dir(context: &ActionContext) -> std::path::PathBuf {
 		.join(&context.device)
 		.join(&context.profile)
 		.join(format!("{}.{}.{}", context.controller, context.position, context.index))
+}
+
+async fn sync_infobar_stack_and_emit(app: &AppHandle, context: Context, locks: &mut LocksMut<'_>) -> Result<(), anyhow::Error> {
+	if let Some(parent_context) = crate::infobar_stack::sync_parent_display(&context, locks).await? {
+		update_state(app, parent_context, locks).await?;
+	}
+	Ok(())
+}
+
+fn renumber_children(parent_context: &Context, children: &mut [ActionInstance]) {
+	for (index, child) in children.iter_mut().enumerate() {
+		child.context = ActionContext::from_context(parent_context.clone(), index as u16 + 1);
+	}
 }
 
 #[command]
@@ -127,6 +162,7 @@ pub async fn move_instance(source: Context, destination: Context, retain: bool) 
 
 	let dst = get_slot_mut(&destination, &mut locks).await?;
 	*dst = Some(new.clone());
+	let _ = sync_infobar_stack_and_emit(crate::APP_HANDLE.get().unwrap(), destination.clone(), &mut locks).await;
 
 	if !retain {
 		let src = get_slot_mut(&source, &mut locks).await?;
@@ -145,6 +181,32 @@ pub async fn move_instance(source: Context, destination: Context, retain: bool) 
 }
 
 #[command]
+pub async fn reorder_child_instance(context: Context, from: usize, to: usize) -> Result<Option<ActionInstance>, Error> {
+	let mut locks = acquire_locks_mut().await;
+	let parent = {
+		let slot = get_slot_mut(&context, &mut locks).await?;
+		let Some(parent) = slot else {
+			return Ok(None);
+		};
+		let Some(children) = &mut parent.children else {
+			return Ok(None);
+		};
+		if from >= children.len() || to >= children.len() {
+			return Ok(None);
+		}
+
+		let child = children.remove(from);
+		children.insert(to, child);
+		renumber_children(&context, children);
+		parent.clone()
+	};
+	let _ = sync_infobar_stack_and_emit(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await;
+
+	save_profile(&context.device, &mut locks).await?;
+	Ok(Some(parent))
+}
+
+#[command]
 pub async fn remove_instance(context: ActionContext) -> Result<(), Error> {
 	let mut locks = acquire_locks_mut().await;
 	let slot = get_slot_mut(&(&context).into(), &mut locks).await?;
@@ -153,10 +215,9 @@ pub async fn remove_instance(context: ActionContext) -> Result<(), Error> {
 	};
 
 	if instance.context == context {
-		let _ = crate::events::outbound::will_appear::will_disappear(instance, true).await;
+		let _ = crate::events::outbound::will_appear::will_disappear_tree(instance, true).await;
 		if let Some(children) = &instance.children {
 			for child in children {
-				let _ = crate::events::outbound::will_appear::will_disappear(child, true).await;
 				let _ = remove_dir_all(instance_images_dir(&child.context)).await;
 			}
 		}
@@ -169,6 +230,7 @@ pub async fn remove_instance(context: ActionContext) -> Result<(), Error> {
 				let _ = crate::events::outbound::will_appear::will_disappear(instance, true).await;
 				let _ = remove_dir_all(instance_images_dir(&instance.context)).await;
 				children.remove(index);
+				renumber_children(&(&context).into(), children);
 				break;
 			}
 		}
@@ -181,6 +243,7 @@ pub async fn remove_instance(context: ActionContext) -> Result<(), Error> {
 				let _ = update_state(crate::APP_HANDLE.get().unwrap(), instance.context.clone(), &mut locks).await;
 			}
 		}
+		let _ = sync_infobar_stack_and_emit(crate::APP_HANDLE.get().unwrap(), (&context).into(), &mut locks).await;
 	}
 
 	save_profile(&context.device, &mut locks).await?;
@@ -200,9 +263,22 @@ pub async fn update_state(app: &AppHandle, context: ActionContext, locks: &mut L
 		"update_state",
 		UpdateStateEvent {
 			contents: get_instance_mut(&context, locks).await?.cloned(),
-			context,
+			context: context.clone(),
 		},
 	)?;
+
+	if context.index != 0 {
+		let slot_context: Context = (&context).into();
+		if let Some(parent_context) = crate::infobar_stack::sync_parent_display(&slot_context, locks).await? {
+			window.emit(
+				"update_state",
+				UpdateStateEvent {
+					contents: get_instance_mut(&parent_context, locks).await?.cloned(),
+					context: parent_context,
+				},
+			)?;
+		}
+	}
 	Ok(())
 }
 
@@ -211,6 +287,7 @@ pub async fn set_state(instance: ActionInstance, state: u16) -> Result<(), Error
 	let mut locks = acquire_locks_mut().await;
 	let reference = get_instance_mut(&instance.context, &mut locks).await?.unwrap();
 	*reference = instance.clone();
+	update_state(crate::APP_HANDLE.get().unwrap(), instance.context.clone(), &mut locks).await?;
 	save_profile(&instance.context.device, &mut locks).await?;
 	crate::events::outbound::states::title_parameters_did_change(&instance, state).await?;
 	Ok(())

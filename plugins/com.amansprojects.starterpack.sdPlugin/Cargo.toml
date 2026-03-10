@@ -20,3 +20,6 @@ image = "0.25"
 imageproc = "0.26"
 ab_glyph = "0.2"
 base64 = "0.22"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"

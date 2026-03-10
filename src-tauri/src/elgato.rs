@@ -1,4 +1,4 @@
-use crate::events::outbound::{encoder, keypad};
+use crate::events::outbound::{encoder, infobar, keypad};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,7 +34,37 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 		let key_count = kind.key_count();
 		let is_touch_point = context.controller == "Keypad" && context.position >= key_count;
 
-		if let Some(image) = image {
+		if context.controller == "Infobar" {
+			// Active overlay takes precedence over the provided image.
+			let active_overlay = crate::infobar_overlay::get_active_overlay(&context.device, context.position);
+			let effective_image = active_overlay.as_deref().or(image);
+			if let Some(eff_img) = effective_image {
+				let eff_bytes = base64::engine::general_purpose::STANDARD.decode(eff_img.split_once(',').unwrap().1)?;
+				if kind == Kind::Plus {
+					device
+						.write_lcd(
+							context.position as u16 * 200,
+							0,
+							&ImageRect::from_image_async(image::DynamicImage::ImageRgba8(
+								image::load_from_memory(&eff_bytes)?.resize_exact(200, 100, image::imageops::FilterType::Lanczos3).into_rgba8(),
+							))?,
+						)
+						.await?;
+				} else if kind == Kind::Neo {
+					let format = kind.lcd_image_format().unwrap();
+					let data = convert_image_with_format_async(format, image::load_from_memory(&eff_bytes)?.resize_exact(248, 58, image::imageops::FilterType::Lanczos3))?;
+					device.write_lcd_fill(&data).await?;
+				}
+			} else if kind == Kind::Plus {
+				device
+					.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::new_rgb8(200, 100))?)
+					.await?;
+			} else if kind == Kind::Neo {
+				let format = kind.lcd_image_format().unwrap();
+				let data = convert_image_with_format_async(format, image::DynamicImage::new_rgb8(248, 58))?;
+				device.write_lcd_fill(&data).await?;
+			}
+		} else if let Some(image) = image {
 			let data = image.split_once(',').unwrap().1;
 			let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
 			if context.controller == "Encoder" {
@@ -45,25 +75,6 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 						&ImageRect::from_image_async(image::load_from_memory(&bytes)?.resize(72, 72, image::imageops::FilterType::Nearest))?,
 					)
 					.await?;
-			} else if context.controller == "Infobar" {
-				if device.kind() == Kind::Plus {
-					device
-						.write_lcd(
-							context.position as u16 * 200,
-							0,
-							&ImageRect::from_image_async(image::DynamicImage::ImageRgba8(
-								image::load_from_memory(&bytes)?
-									.resize_exact(200, 100, image::imageops::FilterType::Lanczos3)
-									.into_rgba8()
-							))?,
-						)
-						.await?;
-				} else if device.kind() == Kind::Neo {
-					let img = image::load_from_memory(&bytes)?;
-					let format = device.kind().lcd_image_format().unwrap();
-					let data = convert_image_with_format_async(format, img.resize_exact(248, 58, image::imageops::FilterType::Lanczos3))?;
-					device.write_lcd_fill(&data).await?;
-				}
 			} else if is_touch_point {
 				let (r, g, b) = extract_average_colour(&image::load_from_memory(&bytes)?);
 				device.set_touchpoint_color(context.position - key_count, r, g, b).await?;
@@ -74,14 +85,6 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 			device
 				.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::new_rgb8(200, 100))?)
 				.await?;
-		} else if context.controller == "Infobar" {
-			if device.kind() == Kind::Plus {
-				device.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::new_rgb8(200, 100))?).await?;
-			} else if device.kind() == Kind::Neo {
-				let format = device.kind().lcd_image_format().unwrap();
-				let data = convert_image_with_format_async(format, image::DynamicImage::new_rgb8(248, 58))?;
-				device.write_lcd_fill(&data).await?;
-			}
 		} else if is_touch_point {
 			device.set_touchpoint_color(context.position - key_count, 0, 0, 0).await?;
 		} else {
@@ -100,11 +103,16 @@ async fn clear_all_touchpoints(device: &AsyncStreamDeck) {
 }
 
 pub async fn clear_screen(id: &str) -> Result<(), anyhow::Error> {
+	crate::infobar_overlay::clear_device_overlays(id);
 	if let Some(device) = ELGATO_DEVICES.read().await.get(id) {
 		device.clear_all_button_images().await?;
 		if device.kind() == Kind::Plus {
 			device
 				.write_lcd_fill(&convert_image_with_format_async(device.kind().lcd_image_format().unwrap(), image::DynamicImage::new_rgb8(800, 100))?)
+				.await?;
+		} else if device.kind() == Kind::Neo {
+			device
+				.write_lcd_fill(&convert_image_with_format_async(device.kind().lcd_image_format().unwrap(), image::DynamicImage::new_rgb8(248, 58))?)
 				.await?;
 		}
 		clear_all_touchpoints(device).await;
@@ -147,7 +155,13 @@ async fn init(device: AsyncStreamDeck, device_id: String) {
 		let _ = device.set_brightness(settings.value.brightness).await;
 	}
 	let _ = device.flush().await;
-	let infobar_count = if kind == Kind::Neo { 1 } else { 0 };
+	let infobar_count = if kind == Kind::Neo {
+		1
+	} else if kind == Kind::Plus {
+		4
+	} else {
+		0
+	};
 
 	crate::events::inbound::devices::register_device(
 		"",
@@ -168,28 +182,6 @@ async fn init(device: AsyncStreamDeck, device_id: String) {
 	.await
 	.unwrap();
 
-	// DEBUG: Añadir dispositivo Neo simulado para pruebas
-	if kind == Kind::Mini || kind == Kind::MiniMk2 {
-		crate::events::inbound::devices::register_device(
-			"",
-			crate::events::inbound::PayloadEvent {
-				payload: crate::shared::DeviceInfo {
-					id: "sd-neo-test".to_string(),
-					plugin: String::new(),
-					name: "Stream Deck Neo (Test)".to_string(),
-					rows: 3,
-					columns: 4,
-					encoders: 0,
-					touchpoints: 0,
-					infobar: 1,
-					r#type: 9,
-				},
-			},
-		)
-		.await
-		.unwrap();
-	}
-
 	let reader = device.get_reader();
 	ELGATO_DEVICES.write().await.insert(device_id.clone(), device);
 	loop {
@@ -206,6 +198,13 @@ async fn init(device: AsyncStreamDeck, device_id: String) {
 				DeviceStateUpdate::EncoderTwist(dial, ticks) => encoder::dial_rotate(&device_id, dial, ticks.into()).await,
 				DeviceStateUpdate::EncoderDown(dial) => encoder::dial_press(&device_id, "dialDown", dial).await,
 				DeviceStateUpdate::EncoderUp(dial) => encoder::dial_press(&device_id, "dialUp", dial).await,
+				// Plus LCD segment tap: map x coordinate to segment index and
+				// send keyDown + keyUp to the corresponding Infobar action.
+				DeviceStateUpdate::TouchScreenPress(x, _) | DeviceStateUpdate::TouchScreenLongPress(x, _) => {
+					let segment = (x / 200).min(3) as u8;
+					let _ = infobar::key_down(&device_id, segment).await;
+					infobar::key_up(&device_id, segment).await
+				}
 				_ => Ok(()),
 			} {
 				Ok(_) => (),

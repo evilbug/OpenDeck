@@ -117,6 +117,7 @@ pub struct Settings {
 	pub background: bool,
 	pub autolaunch: bool,
 	pub updatecheck: bool,
+	pub show_profile_switch_pill: bool,
 	pub statistics: bool,
 	pub separatewine: bool,
 	pub developer: bool,
@@ -133,6 +134,7 @@ impl Default for Settings {
 			background: !is_flatpak(),
 			autolaunch: false,
 			updatecheck: option_env!("OPENDECK_DISABLE_UPDATE_CHECK").is_none() && !is_flatpak(),
+			show_profile_switch_pill: true,
 			// Consent is given by the user on install so it is OK to have the default be `true`
 			statistics: true,
 			separatewine: false,

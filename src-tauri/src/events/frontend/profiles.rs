@@ -18,6 +18,23 @@ pub async fn get_selected_profile(device: String) -> Result<crate::shared::Profi
 	}
 
 	let selected_profile = locks.device_stores.get_selected_profile(&device)?;
+	let context_template = crate::shared::Context {
+		device: device.clone(),
+		profile: selected_profile.clone(),
+		controller: "Infobar".to_owned(),
+		position: 0,
+	};
+	let infobar_len = DEVICES.get(&device).unwrap().infobar;
+	for position in 0..infobar_len {
+		let _ = crate::infobar_stack::sync_parent_display(
+			&crate::shared::Context {
+				position,
+				..context_template.clone()
+			},
+			&mut locks,
+		)
+		.await;
+	}
 	let profile = locks.profile_stores.get_profile_store(&DEVICES.get(&device).unwrap(), &selected_profile)?;
 
 	Ok(profile.value.clone())
@@ -35,14 +52,14 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	if selected_profile != id {
 		let old_profile = &locks.profile_stores.get_profile_store(&DEVICES.get(&device).unwrap(), &selected_profile)?.value;
-		for instance in old_profile.keys.iter().flatten().chain(&mut old_profile.sliders.iter().flatten()).chain(&mut old_profile.infobar.iter().flatten()) {
-			if !matches!(instance.action.uuid.as_str(), "opendeck.multiaction" | "opendeck.toggleaction") {
-				let _ = crate::events::outbound::will_appear::will_disappear(instance, false).await;
-			} else {
-				for child in instance.children.as_ref().unwrap() {
-					let _ = crate::events::outbound::will_appear::will_disappear(child, false).await;
-				}
-			}
+		for instance in old_profile
+			.keys
+			.iter()
+			.flatten()
+			.chain(&mut old_profile.sliders.iter().flatten())
+			.chain(&mut old_profile.infobar.iter().flatten())
+		{
+			let _ = crate::events::outbound::will_appear::will_disappear_tree(instance, false).await;
 		}
 		let _ = crate::events::outbound::devices::clear_screen(device.clone()).await;
 	}
@@ -50,18 +67,41 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 	// We must use the mutable version of get_profile_store in order to create the store if it does not exist.
 	let store = locks.profile_stores.get_profile_store_mut(&DEVICES.get(&device).unwrap(), &id).await?;
 	let new_profile = &store.value;
-	for instance in new_profile.keys.iter().flatten().chain(&mut new_profile.sliders.iter().flatten()).chain(&mut new_profile.infobar.iter().flatten()) {
-		if !matches!(instance.action.uuid.as_str(), "opendeck.multiaction" | "opendeck.toggleaction") {
-			let _ = crate::events::outbound::will_appear::will_appear(instance).await;
-		} else {
-			for child in instance.children.as_ref().unwrap() {
-				let _ = crate::events::outbound::will_appear::will_appear(child).await;
-			}
-		}
+	for instance in new_profile
+		.keys
+		.iter()
+		.flatten()
+		.chain(&mut new_profile.sliders.iter().flatten())
+		.chain(&mut new_profile.infobar.iter().flatten())
+	{
+		let _ = crate::events::outbound::will_appear::will_appear_tree(instance).await;
 	}
 	store.save()?;
 
-	locks.device_stores.set_selected_profile(&device, id)?;
+	locks.device_stores.set_selected_profile(&device, id.clone())?;
+
+	let settings = crate::store::get_settings()?.value;
+	if selected_profile != id && settings.show_profile_switch_pill {
+		let infobar_segments = DEVICES.get(&device).map(|d| d.infobar).unwrap_or(0);
+		if infobar_segments > 0 {
+			for position in 0..infobar_segments {
+				let _ = crate::events::inbound::popover::show_infobar_popover(
+					crate::events::inbound::PayloadEvent {
+						payload: crate::events::inbound::popover::ShowInfobarPopoverPayload {
+							device: device.clone(),
+							position,
+							priority: 230,
+							duration_ms: 1500,
+							component: crate::infobar_popover::InfobarComponent::Pill {
+								text: format!("Profile: {id}"),
+							},
+						},
+					},
+				)
+				.await;
+			}
+		}
+	}
 
 	Ok(())
 }
