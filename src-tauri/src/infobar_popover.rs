@@ -103,11 +103,18 @@ pub fn render_component(component: &InfobarComponent) -> Result<String, anyhow::
 
 		InfobarComponent::Pill { text } => {
 			let pill_bg = Rgba([55, 55, 65, 255]);
-			let radius = 14i32;
-			let x = 10i32;
-			let y = 9i32;
-			let w = (WIDTH as i32) - 20;
-			let h = (HEIGHT as i32) - 18;
+			let scale = PxScale { x: 24.0, y: 24.0 };
+			let horizontal_padding = 4i32;
+			let max_pill_width = (WIDTH as i32) - 20;
+			let max_text_width = (max_pill_width - horizontal_padding * 2).max(0) as f32;
+			let display = truncate(&font, scale, text, max_text_width);
+			let text_w = text_width(&font, scale, &display).ceil() as i32;
+
+			let w = (text_w + horizontal_padding * 2).clamp(2, max_pill_width);
+			let h = 32i32;
+			let radius = h / 2;
+			let x = ((WIDTH as i32 - w) / 2).max(0);
+			let y = ((HEIGHT as i32 - h) / 2).max(0);
 
 			draw_filled_rect_mut(&mut img, Rect::at(x + radius, y).of_size((w - radius * 2) as u32, h as u32), pill_bg);
 			draw_filled_rect_mut(&mut img, Rect::at(x, y + radius).of_size(w as u32, (h - radius * 2) as u32), pill_bg);
@@ -127,11 +134,9 @@ pub fn render_component(component: &InfobarComponent) -> Result<String, anyhow::
 				}
 			}
 
-			let scale = PxScale { x: 24.0, y: 24.0 };
-			let display = truncate(&font, scale, text, (WIDTH - 28) as f32);
-			let text_w = text_width(&font, scale, &display);
-			let tx = ((WIDTH as f32 - text_w) / 2.0).max(10.0) as i32;
-			draw_text_mut(&mut img, FG, tx, 17, scale, &font, &display);
+			let tx = x + ((w - text_w) / 2).max(0);
+			let ty = y + 8;
+			draw_text_mut(&mut img, FG, tx, ty, scale, &font, &display);
 		}
 
 		InfobarComponent::ImageText { image: image_data, text } => {
