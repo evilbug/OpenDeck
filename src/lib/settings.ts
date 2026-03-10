@@ -1,16 +1,16 @@
 export type Settings = {
-  version: string;
-  language: string;
-  brightness: number;
-  rotation: number;
-  background: boolean;
-  autolaunch: boolean;
-  updatecheck: boolean;
-  show_profile_switch_pill: boolean;
-  statistics: boolean;
-  separatewine: boolean;
-  developer: boolean;
-  disableelgato: boolean;
+	version: string;
+	language: string;
+	brightness: number;
+	rotation: number;
+	background: boolean;
+	autolaunch: boolean;
+	updatecheck: boolean;
+	show_profile_switch_pill: boolean;
+	statistics: boolean;
+	separatewine: boolean;
+	developer: boolean;
+	disableelgato: boolean;
 };
 
 import { invoke } from "@tauri-apps/api/core";
@@ -18,13 +18,12 @@ import { type Writable, writable } from "svelte/store";
 
 export const settings: Writable<Settings | null> = writable(null);
 (async () => settings.set(await invoke("get_settings")))();
-export const localisations: Writable<{ [plugin: string]: any } | null> =
-  writable(null);
+export const localisations: Writable<{ [plugin: string]: any } | null> = writable(null);
 settings.subscribe(async (value) => {
-  if (value) {
-    await invoke("set_settings", { settings: value });
-    localisations.set(
-      await invoke("get_localisations", { locale: value.language }),
-    );
-  }
+	if (value) {
+		await invoke("set_settings", { settings: value });
+		localisations.set(
+			await invoke("get_localisations", { locale: value.language }),
+		);
+	}
 });
