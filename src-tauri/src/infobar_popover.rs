@@ -112,12 +112,22 @@ pub fn render_component(component: &InfobarComponent) -> Result<String, anyhow::
 
 			let w = (text_w + horizontal_padding * 2).clamp(2, max_pill_width);
 			let h = 32i32;
-			let radius = h / 2;
+			let radius = ((h - 1) / 2).min((w - 1) / 2).max(1);
 			let x = ((WIDTH as i32 - w) / 2).max(0);
 			let y = ((HEIGHT as i32 - h) / 2).max(0);
 
-			draw_filled_rect_mut(&mut img, Rect::at(x + radius, y).of_size((w - radius * 2) as u32, h as u32), pill_bg);
-			draw_filled_rect_mut(&mut img, Rect::at(x, y + radius).of_size(w as u32, (h - radius * 2) as u32), pill_bg);
+			let mid_w = (w - radius * 2).max(1) as u32;
+			let mid_h = (h - radius * 2).max(1) as u32;
+			draw_filled_rect_mut(
+				&mut img,
+				Rect::at(x + radius, y).of_size(mid_w, h as u32),
+				pill_bg,
+			);
+			draw_filled_rect_mut(
+				&mut img,
+				Rect::at(x, y + radius).of_size(w as u32, mid_h),
+				pill_bg,
+			);
 			for cy in [y + radius, y + h - radius - 1] {
 				for cx in [x + radius, x + w - radius - 1] {
 					for dy in -radius..=radius {
