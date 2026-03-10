@@ -87,15 +87,6 @@
       "SupportedInMultiActions": false,
       "Tooltip": "Display time and date on the infobar",
       "UUID": "com.amansprojects.starterpack.infobar.clock"
-    },
-    {
-      "Icon": "icons/clock",
-      "Name": "Now Playing",
-      "States": [{ "Image": "actionDefaultImage" }],
-      "Controllers": ["Infobar"],
-      "SupportedInMultiActions": false,
-      "Tooltip": "Display the current song's cover art, title, and artist on the infobar (macOS only)",
-      "UUID": "com.amansprojects.starterpack.infobar.nowplaying"
     }
   ]
 }
