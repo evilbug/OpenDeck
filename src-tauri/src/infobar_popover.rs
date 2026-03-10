@@ -118,16 +118,8 @@ pub fn render_component(component: &InfobarComponent) -> Result<String, anyhow::
 
 			let mid_w = (w - radius * 2).max(1) as u32;
 			let mid_h = (h - radius * 2).max(1) as u32;
-			draw_filled_rect_mut(
-				&mut img,
-				Rect::at(x + radius, y).of_size(mid_w, h as u32),
-				pill_bg,
-			);
-			draw_filled_rect_mut(
-				&mut img,
-				Rect::at(x, y + radius).of_size(w as u32, mid_h),
-				pill_bg,
-			);
+			draw_filled_rect_mut(&mut img, Rect::at(x + radius, y).of_size(mid_w, h as u32), pill_bg);
+			draw_filled_rect_mut(&mut img, Rect::at(x, y + radius).of_size(w as u32, mid_h), pill_bg);
 			for cy in [y + radius, y + h - radius - 1] {
 				for cx in [x + radius, x + w - radius - 1] {
 					for dy in -radius..=radius {

@@ -17,12 +17,7 @@ pub async fn create_instance(app: AppHandle, action: Action, context: Context) -
 
 	if let Some(parent) = slot {
 		let (instance, parent_context, should_update_parent) = {
-			if parent.children.is_none()
-				&& matches!(
-					parent.action.uuid.as_str(),
-					"opendeck.multiaction" | "opendeck.toggleaction" | crate::infobar_stack::ACTION_UUID
-				)
-			{
+			if parent.children.is_none() && matches!(parent.action.uuid.as_str(), "opendeck.multiaction" | "opendeck.toggleaction" | crate::infobar_stack::ACTION_UUID) {
 				parent.children = Some(vec![]);
 			}
 

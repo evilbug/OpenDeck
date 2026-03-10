@@ -26,14 +26,7 @@ pub async fn get_selected_profile(device: String) -> Result<crate::shared::Profi
 	};
 	let infobar_len = DEVICES.get(&device).unwrap().infobar;
 	for position in 0..infobar_len {
-		let _ = crate::infobar_stack::sync_parent_display(
-			&crate::shared::Context {
-				position,
-				..context_template.clone()
-			},
-			&mut locks,
-		)
-		.await;
+		let _ = crate::infobar_stack::sync_parent_display(&crate::shared::Context { position, ..context_template.clone() }, &mut locks).await;
 	}
 	let profile = locks.profile_stores.get_profile_store(&DEVICES.get(&device).unwrap(), &selected_profile)?;
 
@@ -85,19 +78,15 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 		let infobar_segments = DEVICES.get(&device).map(|d| d.infobar).unwrap_or(0);
 		if infobar_segments > 0 {
 			for position in 0..infobar_segments {
-				let _ = crate::events::inbound::popover::show_infobar_popover(
-					crate::events::inbound::PayloadEvent {
-						payload: crate::events::inbound::popover::ShowInfobarPopoverPayload {
-							device: device.clone(),
-							position,
-							priority: 230,
-							duration_ms: 1500,
-							component: crate::infobar_popover::InfobarComponent::Pill {
-								text: format!("Profile: {id}"),
-							},
-						},
+				let _ = crate::events::inbound::popover::show_infobar_popover(crate::events::inbound::PayloadEvent {
+					payload: crate::events::inbound::popover::ShowInfobarPopoverPayload {
+						device: device.clone(),
+						position,
+						priority: 230,
+						duration_ms: 1500,
+						component: crate::infobar_popover::InfobarComponent::Pill { text: format!("Profile: {id}") },
 					},
-				)
+				})
 				.await;
 			}
 		}
