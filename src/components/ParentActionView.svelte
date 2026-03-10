@@ -107,7 +107,7 @@
 >
 	{#each children as instance, index}
 		<div class="flex flex-row items-center mx-4 my-2 bg-neutral-700 hover:bg-neutral-600 transition-colors border border-neutral-600 rounded-lg">
-			<Key inslot={instance} context={null} active={false} scale={3 / 4} />
+			<Key inslot={instance} context={null} active={false} scale={3 / 4} isInfobar={parentUuid == "opendeck.infobarstack"} />
 			<p class="ml-4 text-xl text-neutral-300">{instance.action.name}</p>
 			<div class="flex flex-col ml-auto mr-4 gap-1">
 				<button on:click={() => moveInstance(index, -1)} disabled={index == 0}>

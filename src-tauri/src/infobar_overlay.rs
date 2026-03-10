@@ -6,35 +6,23 @@ use std::time::Instant;
 
 use dashmap::DashMap;
 
-struct OverlayEntry {
+pub struct OverlayEntry {
 	/// Unique ID assigned at push time so the expiry task can avoid removing a
 	/// newer push at the same priority.
-	id: u64,
-	image: String,
-	expires_at: Option<Instant>,
+	pub id: u64,
+	pub image: String,
+	pub expires_at: Option<Instant>,
 }
 
-type OverlayMap = BTreeMap<Reverse<u8>, OverlayEntry>;
+pub type OverlayMap = BTreeMap<Reverse<u8>, OverlayEntry>;
 
 /// (device_id, position) → descending-priority BTreeMap of overlay entries.
-static OVERLAYS: LazyLock<DashMap<(String, u8), OverlayMap>> = LazyLock::new(DashMap::new);
+pub static OVERLAYS: LazyLock<DashMap<(String, u8), OverlayMap>> = LazyLock::new(DashMap::new);
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-/// Return the image from the highest-priority non-expired overlay for this
-/// slot, or `None` if no active overlay exists.
-pub fn get_active_overlay(device_id: &str, position: u8) -> Option<String> {
-	let entries = OVERLAYS.get(&(device_id.to_owned(), position))?;
-	let now = Instant::now();
-	for entry in entries.values() {
-		if entry.expires_at.is_none_or(|exp| exp > now) {
-			return Some(entry.image.clone());
-		}
-	}
-	None
-}
-
-/// Push an overlay image for a slot.  Returns an opaque ID that the caller
+/// Push an overlay image for a slot.
+/// Returns an opaque ID that the caller
 /// should pass to `expire_and_rerender` when the TTL fires.
 ///
 /// `duration_ms == 0` means permanent (until explicitly cleared or the device
@@ -51,6 +39,20 @@ pub fn push_overlay(device_id: &str, position: u8, image: String, priority: u8, 
 		.or_default()
 		.insert(Reverse(priority), OverlayEntry { id, image, expires_at });
 	id
+}
+
+/// Update the image of a specific overlay entry if it hasn't been replaced.
+/// Returns `true` if the update was successful (ID matched).
+pub fn update_overlay_image(device_id: &str, position: u8, priority: u8, overlay_id: u64, image: String) -> bool {
+	if let Some(mut entries) = OVERLAYS.get_mut(&(device_id.to_owned(), position)) {
+		if let Some(entry) = entries.get_mut(&Reverse(priority)) {
+			if entry.id == overlay_id {
+				entry.image = image;
+				return true;
+			}
+		}
+	}
+	false
 }
 
 /// Remove a specific overlay entry, identified by its unique ID, and then

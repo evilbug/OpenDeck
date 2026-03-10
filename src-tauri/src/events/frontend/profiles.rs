@@ -80,11 +80,16 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 			for position in 0..infobar_segments {
 				let _ = crate::events::inbound::popover::show_infobar_popover(crate::events::inbound::PayloadEvent {
 					payload: crate::events::inbound::popover::ShowInfobarPopoverPayload {
-						device: device.clone(),
-						position,
+						context: crate::shared::ActionContext {
+							device: device.clone(),
+							profile: id.clone(),
+							controller: "Infobar".to_string(),
+							position,
+							index: 0,
+						},
 						priority: 230,
 						duration_ms: 1500,
-						component: crate::infobar_popover::InfobarComponent::Pill { text: format!("Profile: {id}") },
+						component: crate::infobar_popover::InfobarComponent::Pill { text: id.clone() },
 					},
 				})
 				.await;

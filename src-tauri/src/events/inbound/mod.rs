@@ -92,6 +92,9 @@ pub async fn process_incoming_message(data: Result<Message, Error>, uuid: &str, 
 				InboundEventType::ShowOk(event) => Some(&event.context),
 				InboundEventType::SendToPropertyInspector(event) => Some(&event.context),
 				InboundEventType::SetInfobarItemVisibility(event) => Some(&event.context),
+				InboundEventType::SetInfobarImage(event) => Some(&event.payload.context),
+				InboundEventType::ClearInfobarOverlay(event) => Some(&event.payload.context),
+				InboundEventType::ShowInfobarPopover(event) => Some(&event.payload.context),
 				_ => None,
 			} {
 				if let Ok(Some(instance)) = get_instance(context, &acquire_locks().await).await {
