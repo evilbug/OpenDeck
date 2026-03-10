@@ -60,6 +60,9 @@ pub async fn set_infobar_component(event: PayloadEvent<SetInfobarComponentPayloa
 
 	let mut locks = acquire_locks_mut().await;
 	update_state(crate::APP_HANDLE.get().unwrap(), p.context.clone(), &mut locks).await?;
+	if let Some(parent_context) = crate::infobar_stack::sync_parent_display(&(&p.context).into(), &mut locks).await? {
+		update_state(crate::APP_HANDLE.get().unwrap(), parent_context, &mut locks).await?;
+	}
 
 	let context = crate::shared::Context {
 		device: p.context.device,
