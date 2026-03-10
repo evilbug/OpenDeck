@@ -125,8 +125,8 @@ pub fn get_scroll_width(component: &InfobarComponent) -> f32 {
 		}
 		InfobarComponent::ImageTitleSubtitle { title, subtitle, .. } => {
 			let title_scale = PxScale { x: 22.0, y: 22.0 };
-			let subtitle_scale = PxScale { x: 14.0, y: 14.0 };
-			let max_text_width = (WIDTH - HEIGHT - 6) as f32;
+			let subtitle_scale = PxScale { x: 18.0, y: 18.0 };
+			let max_text_width = (WIDTH - 58 - 6) as f32;
 			let title_overflow = (text_width(&font, title_scale, title) - max_text_width).max(0.0);
 			let subtitle_overflow = (text_width(&font, subtitle_scale, subtitle) - max_text_width).max(0.0);
 			title_overflow.max(subtitle_overflow)
@@ -252,6 +252,8 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 		}
 
 		InfobarComponent::ImageTitleSubtitle { image: image_data, title, subtitle } => {
+			draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(WIDTH, HEIGHT), Rgba([20, 20, 20, 255]));
+
 			if THUMBNAIL_CACHE.len() > 100 {
 				THUMBNAIL_CACHE.clear();
 			}
@@ -262,17 +264,18 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 				let bytes = general_purpose::STANDARD.decode(raw)?;
 				let dynamic = image::load_from_memory(&bytes)?;
 				let processed = dynamic
-					.resize(u32::MAX, HEIGHT, image::imageops::FilterType::Lanczos3)
+					.resize_exact(50, 50, image::imageops::FilterType::Lanczos3)
 					.into_rgba8();
 				THUMBNAIL_CACHE.insert(image_data.clone(), processed.clone());
 				processed
 			};
-			image::imageops::overlay(&mut img, &thumb, 0, ((HEIGHT as i64 - thumb.height() as i64) / 2).max(0));
+			image::imageops::overlay(&mut img, &thumb, 4, 4);
 
-			let text_x = (thumb.width() as i32 + 6).min(WIDTH as i32 - 10);
-			let max_text_width = ((WIDTH as i32) - text_x - 4).max(10) as f32;
+			let text_x = 60i32;
+			let max_text_width = (WIDTH - 58 - 6) as f32;
 			let title_scale = PxScale { x: 22.0, y: 22.0 };
-			let subtitle_scale = PxScale { x: 14.0, y: 14.0 };
+			let subtitle_scale = PxScale { x: 18.0, y: 18.0 };
+			let subtitle_fg = Rgba([170, 170, 170, 255]);
 
 			if let Some(off) = offset {
 				let mut title_img = RgbaImage::new(max_text_width as u32, title_scale.y as u32 + 8);
@@ -280,13 +283,13 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 				image::imageops::overlay(&mut img, &title_img, text_x as i64, 5);
 
 				let mut subtitle_img = RgbaImage::new(max_text_width as u32, subtitle_scale.y as u32 + 8);
-				draw_text_mut(&mut subtitle_img, FG, -(off as i32), 0, subtitle_scale, &font, subtitle);
-				image::imageops::overlay(&mut img, &subtitle_img, text_x as i64, 31);
+				draw_text_mut(&mut subtitle_img, subtitle_fg, -(off as i32), 0, subtitle_scale, &font, subtitle);
+				image::imageops::overlay(&mut img, &subtitle_img, text_x as i64, 33);
 			} else {
 				let display_title = truncate(&font, title_scale, title, max_text_width);
 				let display_subtitle = truncate(&font, subtitle_scale, subtitle, max_text_width);
 				draw_text_mut(&mut img, FG, text_x, 5, title_scale, &font, &display_title);
-				draw_text_mut(&mut img, FG, text_x, 31, subtitle_scale, &font, &display_subtitle);
+				draw_text_mut(&mut img, subtitle_fg, text_x, 33, subtitle_scale, &font, &display_subtitle);
 			}
 		}
 

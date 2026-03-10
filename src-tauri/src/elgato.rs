@@ -19,9 +19,23 @@ static HIDAPI: LazyLock<RwLock<Option<Arc<hidapi::HidApi>>>> = LazyLock::new(|| 
 
 static SCROLL_TASKS: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
 static COMPONENT_SCROLL_STATE: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
+const INFOBAR_LEFT_SAFE_PADDING: i64 = 8;
 
 pub fn clear_infobar_component_scroll_state(device: &str, position: u8) {
 	COMPONENT_SCROLL_STATE.remove(&(device.to_owned(), position));
+}
+
+fn apply_infobar_left_padding(img: image::RgbaImage) -> image::RgbaImage {
+	if INFOBAR_LEFT_SAFE_PADDING <= 0 {
+		return img;
+	}
+	let (w, h) = img.dimensions();
+	let mut padded = image::RgbaImage::new(w, h);
+	for pixel in padded.pixels_mut() {
+		*pixel = image::Rgba([20, 20, 20, 255]);
+	}
+	image::imageops::overlay(&mut padded, &img, INFOBAR_LEFT_SAFE_PADDING, 0);
+	padded
 }
 
 /// Extract the average colour from an image.
@@ -80,8 +94,10 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 						let signature_clone = signature.clone();
 						tokio::spawn(async move {
 							tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+							let extra_left_scroll = 12.0f32;
+							let target_scroll_width = scroll_width + extra_left_scroll;
 							let step_size = 5.0f32;
-							let steps = (scroll_width / step_size).ceil() as u32;
+							let steps = (target_scroll_width / step_size).ceil() as u32;
 							for step in 1..=steps {
 								if COMPONENT_SCROLL_STATE
 									.get(&(ctx.device.clone(), ctx.position))
@@ -90,7 +106,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 								{
 									return;
 								}
-								let offset = (step as f32 * step_size).min(scroll_width);
+								let offset = (step as f32 * step_size).min(target_scroll_width);
 								if let Ok(frame_uri) = crate::infobar_popover::render_component_at(&component_clone, Some(offset)) {
 									if let Some(device) = ELGATO_DEVICES.read().await.get(&ctx.device) {
 										let mut scroll_img = image::RgbaImage::new(w, h);
@@ -111,8 +127,10 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 										}
 
 										if device.kind() == Kind::Plus {
+											let scroll_img = apply_infobar_left_padding(scroll_img);
 											let _ = device.write_lcd(ctx.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(scroll_img)).unwrap()).await;
 										} else if device.kind() == Kind::Neo {
+											let scroll_img = apply_infobar_left_padding(scroll_img);
 											let format = device.kind().lcd_image_format().unwrap();
 											let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(scroll_img)).unwrap();
 											let _ = device.write_lcd_fill(&data).await;
@@ -120,7 +138,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 										let _ = device.flush().await;
 									}
 								}
-								tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+								tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 							}
 							tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 							if COMPONENT_SCROLL_STATE
@@ -148,8 +166,10 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 								}
 
 								if device.kind() == Kind::Plus {
+									let final_img = apply_infobar_left_padding(final_img);
 									let _ = device.write_lcd(ctx.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(final_img)).unwrap()).await;
 								} else if device.kind() == Kind::Neo {
+									let final_img = apply_infobar_left_padding(final_img);
 									let format = device.kind().lcd_image_format().unwrap();
 									let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(final_img)).unwrap();
 									let _ = device.write_lcd_fill(&data).await;
@@ -203,6 +223,8 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 						let text_val = text.clone();
 						tokio::spawn(async move {
 							tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+							let extra_left_scroll = 12.0f32;
+							let target_scroll_width = scroll_width + extra_left_scroll;
 							let step_size = 4.0f32;
 							let mut offset = 0.0f32;
 							loop {
@@ -212,7 +234,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 								}
 
 								offset += step_size;
-								if offset > scroll_width {
+								if offset > target_scroll_width {
 									tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
 									offset = 0.0;
 								}
@@ -249,8 +271,10 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 										}
 
 										if device.kind() == Kind::Plus {
+											let scroll_img = apply_infobar_left_padding(scroll_img);
 											let _ = device.write_lcd(ctx.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(scroll_img)).unwrap()).await;
 										} else if device.kind() == Kind::Neo {
+											let scroll_img = apply_infobar_left_padding(scroll_img);
 											let format = device.kind().lcd_image_format().unwrap();
 											let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(scroll_img)).unwrap();
 											let _ = device.write_lcd_fill(&data).await;
@@ -258,7 +282,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 										let _ = device.flush().await;
 									}
 								}
-								tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+								tokio::time::sleep(std::time::Duration::from_millis(125)).await;
 							}
 						});
 					}
@@ -297,8 +321,10 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 			}
 
 			if kind == Kind::Plus {
+				let base_img = apply_infobar_left_padding(base_img);
 				device.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(base_img))?).await?;
 			} else if kind == Kind::Neo {
+				let base_img = apply_infobar_left_padding(base_img);
 				let format = kind.lcd_image_format().unwrap();
 				let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(base_img))?;
 				device.write_lcd_fill(&data).await?;
