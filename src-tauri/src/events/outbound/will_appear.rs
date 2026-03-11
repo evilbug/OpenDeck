@@ -2,6 +2,19 @@ use super::{GenericInstancePayload, send_to_plugin};
 
 use crate::shared::{ActionContext, ActionInstance};
 
+fn clear_infobar_slot_state(context: &ActionContext) {
+	if context.controller != "Infobar" {
+		return;
+	}
+
+	let key = (context.device.clone(), context.position);
+	crate::shared::INFOBAR_IMAGES.remove(&key);
+	crate::shared::INFOBAR_TEXT.remove(&key);
+	crate::shared::INFOBAR_COMPONENTS.remove(&key);
+	crate::infobar_overlay::OVERLAYS.remove(&key);
+	crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
+}
+
 #[derive(serde::Serialize)]
 struct AppearEvent {
 	event: &'static str,
@@ -31,6 +44,7 @@ pub async fn will_appear(instance: &ActionInstance) -> Result<(), anyhow::Error>
 
 pub async fn will_disappear(instance: &ActionInstance, clear_on_device: bool) -> Result<(), anyhow::Error> {
 	crate::infobar_stack::clear_visibility(&instance.context);
+	crate::infobar_stack::clear_component(&instance.context);
 
 	send_to_plugin(
 		&instance.action.plugin,
@@ -43,6 +57,10 @@ pub async fn will_disappear(instance: &ActionInstance, clear_on_device: bool) ->
 		},
 	)
 	.await?;
+
+	if clear_on_device {
+		clear_infobar_slot_state(&instance.context);
+	}
 
 	if clear_on_device && let Err(error) = crate::events::outbound::devices::update_image((&instance.context).into(), None).await {
 		log::warn!("Failed to clear device image: {}", error);
@@ -71,6 +89,9 @@ pub async fn will_disappear_tree(instance: &ActionInstance, clear_on_device: boo
 			for child in children {
 				will_disappear(child, false).await?;
 			}
+		}
+		if clear_on_device {
+			clear_infobar_slot_state(&instance.context);
 		}
 		if clear_on_device && let Err(error) = crate::events::outbound::devices::update_image((&instance.context).into(), None).await {
 			log::warn!("Failed to clear device image: {}", error);

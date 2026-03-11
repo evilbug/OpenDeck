@@ -56,6 +56,7 @@ pub struct SetInfobarComponentPayload {
 
 pub async fn set_infobar_component(event: PayloadEvent<SetInfobarComponentPayload>) -> Result<(), anyhow::Error> {
 	let p = event.payload;
+	crate::infobar_stack::set_component(p.context.clone(), p.component.clone());
 	crate::shared::INFOBAR_COMPONENTS.insert((p.context.device.clone(), p.context.position), p.component);
 
 	let mut locks = acquire_locks_mut().await;

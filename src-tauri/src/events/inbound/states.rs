@@ -22,6 +22,38 @@ pub struct SetStatePayload {
 	state: u16,
 }
 
+async fn render_infobar_from_effective_state(
+	context: &crate::shared::ActionContext,
+	text: String,
+	image: String,
+	locks: &mut crate::store::profiles::LocksMut<'_>,
+) -> Result<(), anyhow::Error> {
+	let key = (context.device.clone(), context.position);
+	crate::shared::INFOBAR_COMPONENTS.remove(&key);
+	crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
+
+	if context.index == 0 {
+		crate::shared::INFOBAR_TEXT.insert(key, text);
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
+		let ctx: crate::shared::Context = context.into();
+		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+		return Ok(());
+	}
+
+	if let Some(parent_context) = crate::infobar_stack::sync_parent_display(&context.into(), locks).await? {
+		update_state(crate::APP_HANDLE.get().unwrap(), parent_context.clone(), locks).await?;
+		if let Some(parent_instance) = get_instance_mut(&parent_context, locks).await? {
+			let state = &parent_instance.states[parent_instance.current_state as usize];
+			crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), state.text.clone());
+			crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), state.image.clone());
+		}
+		let parent_ctx: crate::shared::Context = (&parent_context).into();
+		let _ = crate::events::outbound::devices::update_image(parent_ctx, None).await;
+	}
+
+	Ok(())
+}
+
 pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result<(), anyhow::Error> {
 	let mut locks = acquire_locks_mut().await;
 
@@ -48,12 +80,8 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
-		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
-		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
-		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
-		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
-		let ctx: crate::shared::Context = (&context).into();
-		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+		crate::infobar_stack::clear_component(&context);
+		render_infobar_from_effective_state(&context, text, image, &mut locks).await?;
 	} else {
 		// For non-infobar buttons, render the updated image
 		let ctx: crate::shared::Context = (&context).into();
@@ -109,12 +137,8 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
-		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
-		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
-		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
-		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
-		let ctx: crate::shared::Context = (&context).into();
-		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+		crate::infobar_stack::clear_component(&context);
+		render_infobar_from_effective_state(&context, text, image, &mut locks).await?;
 	} else {
 		// For non-infobar buttons, render the updated image
 		let ctx: crate::shared::Context = (&context).into();
@@ -148,12 +172,8 @@ pub async fn set_state(event: ContextAndPayloadEvent<SetStatePayload>) -> Result
 	update_state(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await?;
 
 	if is_infobar {
-		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
-		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
-		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
-		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
-		let ctx: crate::shared::Context = (&context).into();
-		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+		crate::infobar_stack::clear_component(&context);
+		render_infobar_from_effective_state(&context, text, image, &mut locks).await?;
 	} else {
 		// For non-infobar buttons, render the updated image
 		let ctx: crate::shared::Context = (&context).into();

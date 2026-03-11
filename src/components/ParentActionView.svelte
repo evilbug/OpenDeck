@@ -10,6 +10,8 @@
 	import { inspectedInstance, inspectedParentAction } from "$lib/propertyInspector";
 
 	import { invoke } from "@tauri-apps/api/core";
+	import { listen } from "@tauri-apps/api/event";
+	import { onMount } from "svelte";
 
 	export let profile: Profile;
 
@@ -29,6 +31,23 @@
 	let parentUuid: string;
 	$: parentUuid = parentInstance()?.action.uuid ?? "";
 	$: title = parentUuid == "opendeck.toggleaction" ? "Toggle Action" : parentUuid == "opendeck.infobarstack" ? "Infobar Stack" : "Multi Action";
+
+	onMount(() => {
+		const unlistenPromise = listen("update_state", ({ payload }: { payload: { context: string; contents: ActionInstance | null } }) => {
+			if (!$inspectedParentAction) return;
+			const slot = parentInstance();
+			if (!slot || payload.context != slot.context) return;
+
+			const array = slotArray();
+			if (!array[$inspectedParentAction.position]) return;
+			array[$inspectedParentAction.position] = payload.contents;
+			profile = profile;
+		});
+
+		return () => {
+			unlistenPromise.then((unlisten) => unlisten());
+		};
+	});
 
 	function handleDragOver(event: DragEvent) {
 		event.preventDefault();

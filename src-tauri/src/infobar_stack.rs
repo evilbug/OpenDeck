@@ -9,6 +9,7 @@ pub const ACTION_UUID: &str = "opendeck.infobarstack";
 const BLANK_IMAGE_DATA_URL: &str = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 static VISIBILITY: LazyLock<DashMap<ActionContext, bool>> = LazyLock::new(DashMap::new);
+static COMPONENTS: LazyLock<DashMap<ActionContext, crate::infobar_popover::InfobarComponent>> = LazyLock::new(DashMap::new);
 
 pub fn is_infobar_stack(instance: &ActionInstance) -> bool {
 	instance.action.uuid == ACTION_UUID
@@ -24,6 +25,14 @@ pub fn set_visibility(context: ActionContext, visible: bool) {
 
 pub fn clear_visibility(context: &ActionContext) {
 	VISIBILITY.remove(context);
+}
+
+pub fn set_component(context: ActionContext, component: crate::infobar_popover::InfobarComponent) {
+	COMPONENTS.insert(context, component);
+}
+
+pub fn clear_component(context: &ActionContext) {
+	COMPONENTS.remove(context);
 }
 
 pub fn active_child(instance: &ActionInstance) -> Option<&ActionInstance> {
@@ -51,5 +60,21 @@ pub async fn sync_parent_display(context: &Context, locks: &mut LocksMut<'_>) ->
 
 	parent.states = vec![effective_state(parent)];
 	parent.current_state = 0;
+
+	if let Some(state) = parent.states.first() {
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), state.image.clone());
+		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), state.text.clone());
+	}
+	if let Some(child) = active_child(parent) {
+		if let Some(component) = COMPONENTS.get(&child.context) {
+			crate::shared::INFOBAR_COMPONENTS.insert((context.device.clone(), context.position), component.clone());
+		} else {
+			crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
+		}
+	} else {
+		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
+	}
+	crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
+
 	Ok(Some(parent.context.clone()))
 }

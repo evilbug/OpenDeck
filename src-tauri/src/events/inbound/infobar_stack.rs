@@ -17,6 +17,8 @@ pub async fn set_infobar_item_visibility(event: ContextAndPayloadEvent<SetInfoba
 	let parent_context = crate::infobar_stack::sync_parent_display(&(&event.context).into(), &mut locks).await?;
 	if let Some(parent_context) = parent_context {
 		update_state(crate::APP_HANDLE.get().unwrap(), parent_context, &mut locks).await?;
+		let context: crate::shared::Context = (&event.context).into();
+		let _ = crate::events::outbound::devices::update_image(context, None).await;
 	}
 	Ok(())
 }
