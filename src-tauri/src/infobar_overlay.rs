@@ -44,13 +44,12 @@ pub fn push_overlay(device_id: &str, position: u8, image: String, priority: u8, 
 /// Update the image of a specific overlay entry if it hasn't been replaced.
 /// Returns `true` if the update was successful (ID matched).
 pub fn update_overlay_image(device_id: &str, position: u8, priority: u8, overlay_id: u64, image: String) -> bool {
-	if let Some(mut entries) = OVERLAYS.get_mut(&(device_id.to_owned(), position)) {
-		if let Some(entry) = entries.get_mut(&Reverse(priority)) {
-			if entry.id == overlay_id {
-				entry.image = image;
-				return true;
-			}
-		}
+	if let Some(mut entries) = OVERLAYS.get_mut(&(device_id.to_owned(), position))
+		&& let Some(entry) = entries.get_mut(&Reverse(priority))
+		&& entry.id == overlay_id
+	{
+		entry.image = image;
+		return true;
 	}
 	false
 }
@@ -91,9 +90,13 @@ pub async fn expire_and_rerender(device_id: String, position: u8, priority: u8, 
 			.infobar
 			.get(position as usize)
 			.and_then(|slot| slot.as_ref())
-			.and_then(|instance| instance.states.get(instance.current_state as usize))
-			.map(|state| state.image.clone())
-			.filter(|img| img.starts_with("data:"));
+			.and_then(|instance| {
+				instance
+					.states
+					.get(instance.current_state as usize)
+					.map(|state| crate::shared::resolve_state_image(&state.image, &instance.action.icon))
+			})
+			.filter(|img| img != "actionDefaultImage");
 		let context = crate::shared::Context {
 			device: device_id,
 			profile: selected,
@@ -139,9 +142,13 @@ pub async fn clear_position_overlays(device_id: String, position: u8) {
 			.infobar
 			.get(position as usize)
 			.and_then(|slot| slot.as_ref())
-			.and_then(|instance| instance.states.get(instance.current_state as usize))
-			.map(|state| state.image.clone())
-			.filter(|img| img.starts_with("data:"));
+			.and_then(|instance| {
+				instance
+					.states
+					.get(instance.current_state as usize)
+					.map(|state| crate::shared::resolve_state_image(&state.image, &instance.action.icon))
+			})
+			.filter(|img| img != "actionDefaultImage");
 		let context = crate::shared::Context {
 			device: device_id,
 			profile: selected,

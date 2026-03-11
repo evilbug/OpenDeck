@@ -80,14 +80,24 @@ impl Action for InfobarClockAction {
 	) -> OpenActionResult<()> {
 		log::info!("Infobar clock started");
 
-		let instance_id = instance.instance_id.clone();
+		let instance_ref = instance.instance_id.clone();
+		let context = instance.instance_id.to_string();
 
 		tokio::spawn(async move {
 			loop {
 				match generate_clock_image() {
 					Ok(b64_image) => {
-						if let Some(inst) = openaction::get_instance(instance_id.clone()).await {
-							if let Err(e) = inst.set_image(Some(b64_image), None).await {
+						if openaction::get_instance(instance_ref.clone()).await.is_some() {
+							if let Err(e) = send_arbitrary_json(serde_json::json!({
+								"event": "setInfobarImage",
+								"payload": {
+									"context": context.clone(),
+									"image": b64_image,
+									"priority": 10u8,
+									"duration_ms": 1500u64,
+								}
+							}))
+							.await {
 								log::error!("Failed to set clock image: {}", e);
 							}
 						} else {

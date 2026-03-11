@@ -62,7 +62,10 @@ pub async fn sync_parent_display(context: &Context, locks: &mut LocksMut<'_>) ->
 	parent.current_state = 0;
 
 	if let Some(state) = parent.states.first() {
-		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), state.image.clone());
+		let resolved_image = active_child(parent)
+			.map(|child| crate::shared::resolve_state_image(&state.image, &child.action.icon))
+			.unwrap_or_else(|| state.image.clone());
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), resolved_image);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), state.text.clone());
 	}
 	if let Some(child) = active_child(parent) {

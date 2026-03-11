@@ -58,16 +58,16 @@ pub async fn show_infobar_popover(event: PayloadEvent<ShowInfobarPopoverPayload>
 			tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
 			// 4. Revert to truncated position.
-			if let Ok(final_frame) = crate::infobar_popover::render_component(&component) {
-				if crate::infobar_overlay::update_overlay_image(&device, position, priority, overlay_id, final_frame) {
-					let context = crate::shared::Context {
-						device: device.clone(),
-						profile: profile.clone(),
-						controller: controller.clone(),
-						position,
-					};
-					let _ = crate::events::outbound::devices::update_image(context, None).await;
-				}
+			if let Ok(final_frame) = crate::infobar_popover::render_component(&component)
+				&& crate::infobar_overlay::update_overlay_image(&device, position, priority, overlay_id, final_frame)
+			{
+				let context = crate::shared::Context {
+					device: device.clone(),
+					profile: profile.clone(),
+					controller: controller.clone(),
+					position,
+				};
+				let _ = crate::events::outbound::devices::update_image(context, None).await;
 			}
 		});
 	}

@@ -18,8 +18,12 @@ use tokio::sync::RwLock;
 static ELGATO_DEVICES: LazyLock<RwLock<HashMap<String, AsyncStreamDeck>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 static HIDAPI: LazyLock<RwLock<Option<Arc<hidapi::HidApi>>>> = LazyLock::new(|| RwLock::new(None));
 
-static SCROLL_TASKS: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
-static SCROLL_GENERATIONS: LazyLock<DashMap<(String, u8), u64>> = LazyLock::new(DashMap::new);
+type InfobarCacheKey = (String, u8);
+type InfobarOverlayCacheKey = (String, u8, u64);
+type CachedRgbaImage = (String, image::RgbaImage);
+
+static SCROLL_TASKS: LazyLock<DashMap<InfobarCacheKey, String>> = LazyLock::new(DashMap::new);
+static SCROLL_GENERATIONS: LazyLock<DashMap<InfobarCacheKey, u64>> = LazyLock::new(DashMap::new);
 static SCROLL_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 const INFOBAR_SAFE_PADDING: i64 = 4;
 
@@ -54,8 +58,8 @@ fn extract_average_colour(img: &image::DynamicImage) -> (u8, u8, u8) {
 	((r_sum / count) as u8, (g_sum / count) as u8, (b_sum / count) as u8)
 }
 
-static INFOBAR_BASE_CACHE: LazyLock<DashMap<(String, u8), (String, image::RgbaImage)>> = LazyLock::new(DashMap::new);
-static INFOBAR_OVERLAY_CACHE: LazyLock<DashMap<(String, u8, u64), (String, image::RgbaImage)>> = LazyLock::new(DashMap::new);
+static INFOBAR_BASE_CACHE: LazyLock<DashMap<InfobarCacheKey, CachedRgbaImage>> = LazyLock::new(DashMap::new);
+static INFOBAR_OVERLAY_CACHE: LazyLock<DashMap<InfobarOverlayCacheKey, CachedRgbaImage>> = LazyLock::new(DashMap::new);
 
 /// Load an image from either a Data URI or a file path.
 fn load_image_raw(uri: &str) -> Option<image::DynamicImage> {
@@ -104,36 +108,7 @@ fn get_base_image(device_id: &str, position: u8, w: u32, h: u32) -> image::RgbaI
 			return cached.1.clone();
 		}
 		
-		let actual_uri = if uri == "actionDefaultImage" || uri.starts_with("opendeck/") {
-			// Find the instance to get the icon or internal path
-			let mut locks = tokio::task::block_in_place(|| {
-				tokio::runtime::Handle::current().block_on(crate::store::profiles::acquire_locks_mut())
-			});
-			let selected_profile = locks.device_stores.get_selected_profile(device_id).unwrap_or_default();
-			let context = crate::shared::Context {
-				device: device_id.to_owned(),
-				profile: selected_profile,
-				controller: "Infobar".to_owned(),
-				position,
-			};
-			let instance_icon = tokio::task::block_in_place(|| {
-				tokio::runtime::Handle::current().block_on(async {
-					if let Ok(Some(instance)) = crate::store::profiles::get_slot_mut(&context, &mut locks).await {
-						Some(instance.action.icon.clone())
-					} else {
-						None
-					}
-				})
-			});
-
-			if uri == "actionDefaultImage" {
-				instance_icon.unwrap_or_else(|| uri.clone())
-			} else {
-				uri.clone()
-			}
-		} else {
-			uri.clone()
-		};
+		let actual_uri = uri.clone();
 
 		if let Some(dynamic) = load_image_raw(&actual_uri) {
 			let processed = if dynamic.width() == w && dynamic.height() == h {
@@ -174,21 +149,20 @@ fn compose_infobar_image(device_id: &str, position: u8, w: u32, h: u32, text_off
 	let mut img = get_base_image(device_id, position, w, h);
 
 	// 1. Component (from setInfobarComponent)
-	if let Some(component) = crate::shared::INFOBAR_COMPONENTS.get(&(device_id.to_owned(), position)) {
-		if let Ok(comp_uri) = crate::infobar_popover::render_component_at(&component, text_offset) {
-			if let Some(comp_img) = load_image_raw(&comp_uri) {
-				image::imageops::overlay(&mut img, &comp_img, 0, 0);
-			}
-		}
+	if let Some(component) = crate::shared::INFOBAR_COMPONENTS.get(&(device_id.to_owned(), position))
+		&& let Ok(comp_uri) = crate::infobar_popover::render_component_at(&component, text_offset)
+		&& let Some(comp_img) = load_image_raw(&comp_uri)
+	{
+		image::imageops::overlay(&mut img, &comp_img, 0, 0);
 	}
 
 	// 2. Title Text (rendered behind popovers)
 	if let Some(text) = crate::shared::INFOBAR_TEXT.get(&(device_id.to_owned(), position)) && !text.is_empty() {
 		let component = crate::infobar_popover::InfobarComponent::Text { text: text.clone() };
-		if let Ok(text_uri) = crate::infobar_popover::render_component_at(&component, text_offset) {
-			if let Some(text_img) = load_image_raw(&text_uri) {
-				image::imageops::overlay(&mut img, &text_img, 0, 0);
-			}
+		if let Ok(text_uri) = crate::infobar_popover::render_component_at(&component, text_offset)
+			&& let Some(text_img) = load_image_raw(&text_uri)
+		{
+			image::imageops::overlay(&mut img, &text_img, 0, 0);
 		}
 	}
 
@@ -196,11 +170,11 @@ fn compose_infobar_image(device_id: &str, position: u8, w: u32, h: u32, text_off
 	if let Some(entries) = crate::infobar_overlay::OVERLAYS.get(&(device_id.to_owned(), position)) {
 		let now = std::time::Instant::now();
 		for entry in entries.values() {
-			if entry.expires_at.is_none_or(|exp| exp > now) {
-				if let Some(overlay_img) = get_overlay_image(device_id, position, entry.id, &entry.image, w, h) {
-					image::imageops::overlay(&mut img, &overlay_img, 0, 0);
-					break;
-				}
+			if entry.expires_at.is_none_or(|exp| exp > now)
+				&& let Some(overlay_img) = get_overlay_image(device_id, position, entry.id, &entry.image, w, h)
+			{
+				image::imageops::overlay(&mut img, &overlay_img, 0, 0);
+				break;
 			}
 		}
 	}
@@ -333,10 +307,8 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 				} else if is_touch_point {
 					let (r, g, b) = extract_average_colour(&dynamic);
 					device.set_touchpoint_color(context.position - key_count, r, g, b).await?;
-				} else {
-					if let Err(e) = device.set_button_image(context.position, dynamic).await {
-						log::error!("Failed to set button image for device {} position {}: {e}", context.device, context.position);
-					}
+				} else if let Err(e) = device.set_button_image(context.position, dynamic).await {
+					log::error!("Failed to set button image for device {} position {}: {e}", context.device, context.position);
 				}
 			} else {
 				// If image was provided but failed to load, clear it or do nothing? 

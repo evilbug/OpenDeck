@@ -42,11 +42,6 @@ async fn render_infobar_from_effective_state(
 
 	if let Some(parent_context) = crate::infobar_stack::sync_parent_display(&context.into(), locks).await? {
 		update_state(crate::APP_HANDLE.get().unwrap(), parent_context.clone(), locks).await?;
-		if let Some(parent_instance) = get_instance_mut(&parent_context, locks).await? {
-			let state = &parent_instance.states[parent_instance.current_state as usize];
-			crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), state.text.clone());
-			crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), state.image.clone());
-		}
 		let parent_ctx: crate::shared::Context = (&parent_context).into();
 		let _ = crate::events::outbound::devices::update_image(parent_ctx, None).await;
 	}
@@ -70,7 +65,10 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 		}
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
-		let image = instance.states[instance.current_state as usize].image.clone();
+		let image = crate::shared::resolve_state_image(
+			&instance.states[instance.current_state as usize].image,
+			&instance.action.icon,
+		);
 		let is_infobar = instance.context.controller == "Infobar";
 		(context, text, image, is_infobar)
 	} else {
@@ -127,7 +125,10 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 		}
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
-		let image = instance.states[instance.current_state as usize].image.clone();
+		let image = crate::shared::resolve_state_image(
+			&instance.states[instance.current_state as usize].image,
+			&instance.action.icon,
+		);
 		let is_infobar = instance.context.controller == "Infobar";
 		(context, text, image, is_infobar)
 	} else {
@@ -162,7 +163,10 @@ pub async fn set_state(event: ContextAndPayloadEvent<SetStatePayload>) -> Result
 		instance.current_state = event.payload.state;
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
-		let image = instance.states[instance.current_state as usize].image.clone();
+		let image = crate::shared::resolve_state_image(
+			&instance.states[instance.current_state as usize].image,
+			&instance.action.icon,
+		);
 		let is_infobar = instance.context.controller == "Infobar";
 		(context, text, image, is_infobar)
 	} else {

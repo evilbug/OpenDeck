@@ -43,6 +43,8 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	let device_info = DEVICES.get(&device).unwrap().clone();
 	let infobar_segments = device_info.infobar;
+	let mut old_instances: Vec<crate::shared::ActionInstance> = vec![];
+	let mut new_instances: Vec<crate::shared::ActionInstance> = vec![];
 	let mut old_infobar_action_uuids = vec![None; infobar_segments as usize];
 	let mut new_infobar_action_uuids = vec![None; infobar_segments as usize];
 	let old_infobar_components: Vec<Option<String>> = (0..infobar_segments)
@@ -57,39 +59,37 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	if selected_profile != id {
 		let old_profile = &locks.profile_stores.get_profile_store(&device_info, &selected_profile)?.value;
+		old_instances = old_profile
+			.keys
+			.iter()
+			.flatten()
+			.chain(old_profile.sliders.iter().flatten())
+			.chain(old_profile.infobar.iter().flatten())
+			.cloned()
+			.collect();
 		old_infobar_action_uuids = old_profile
 			.infobar
 			.iter()
 			.map(|slot| slot.as_ref().map(|instance| instance.action.uuid.clone()))
 			.collect();
-		for instance in old_profile
-			.keys
-			.iter()
-			.flatten()
-			.chain(&mut old_profile.sliders.iter().flatten())
-			.chain(&mut old_profile.infobar.iter().flatten())
-		{
-			let _ = crate::events::outbound::will_appear::will_disappear_tree(instance, false).await;
-		}
 		crate::infobar_overlay::clear_device_overlays(&device);
 	}
 
 	let store = locks.profile_stores.get_profile_store_mut(&device_info, &id).await?;
 	let new_profile = &store.value;
+	new_instances = new_profile
+		.keys
+		.iter()
+		.flatten()
+		.chain(new_profile.sliders.iter().flatten())
+		.chain(new_profile.infobar.iter().flatten())
+		.cloned()
+		.collect();
 	new_infobar_action_uuids = new_profile
 		.infobar
 		.iter()
 		.map(|slot| slot.as_ref().map(|instance| instance.action.uuid.clone()))
 		.collect();
-	for instance in new_profile
-		.keys
-		.iter()
-		.flatten()
-		.chain(&mut new_profile.sliders.iter().flatten())
-		.chain(&mut new_profile.infobar.iter().flatten())
-	{
-		let _ = crate::events::outbound::will_appear::will_appear_tree(instance).await;
-	}
 	store.save()?;
 
 	locks.device_stores.set_selected_profile(&device, id.clone())?;
@@ -111,9 +111,14 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 		let _ = crate::infobar_stack::sync_parent_display(&context, &mut locks).await;
 
 		if let Ok(Some(instance)) = crate::store::profiles::get_slot_mut(&context, &mut locks).await {
-			let state = &instance.states[instance.current_state as usize];
-			crate::shared::INFOBAR_IMAGES.insert((device.clone(), position), state.image.clone());
-			crate::shared::INFOBAR_TEXT.insert((device.clone(), position), state.text.clone());
+			if !crate::infobar_stack::is_infobar_stack(instance) {
+				let state = &instance.states[instance.current_state as usize];
+				crate::shared::INFOBAR_IMAGES.insert(
+					(device.clone(), position),
+					crate::shared::resolve_state_image(&state.image, &instance.action.icon),
+				);
+				crate::shared::INFOBAR_TEXT.insert((device.clone(), position), state.text.clone());
+			}
 		} else {
 			crate::shared::INFOBAR_IMAGES.remove(&(device.clone(), position));
 			crate::shared::INFOBAR_TEXT.remove(&(device.clone(), position));
@@ -194,6 +199,13 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 	}
 
 	drop(locks);
+
+	for instance in &old_instances {
+		let _ = crate::events::outbound::will_appear::will_disappear_tree(instance, false).await;
+	}
+	for instance in &new_instances {
+		let _ = crate::events::outbound::will_appear::will_appear_tree(instance).await;
+	}
 
 	for (context, image) in slot_updates {
 		let _ = crate::events::outbound::devices::update_image(context, image).await;

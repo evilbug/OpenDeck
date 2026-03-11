@@ -77,6 +77,14 @@ pub fn convert_icon(path: String) -> String {
 	}
 }
 
+pub fn resolve_state_image(image: &str, action_icon: &str) -> String {
+	if image == "actionDefaultImage" {
+		action_icon.to_owned()
+	} else {
+		image.to_owned()
+	}
+}
+
 #[derive(Clone, Copy, Serialize)]
 pub struct FontSize(pub u16);
 impl<'de> Deserialize<'de> for FontSize {

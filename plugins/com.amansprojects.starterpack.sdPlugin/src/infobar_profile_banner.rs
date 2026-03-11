@@ -41,6 +41,21 @@ fn extract_profile_name(instance_id: &str) -> String {
 	}
 }
 
+fn make_infobar_context(instance_id: &str, position: u8) -> String {
+	let mut parts: Vec<String> = instance_id.split('.').map(|part| part.to_owned()).collect();
+	if parts.len() >= 5 {
+		let index = parts.len() - 1;
+		let position_index = parts.len() - 2;
+		let controller_index = parts.len() - 3;
+		parts[controller_index] = "Infobar".to_owned();
+		parts[position_index] = position.to_string();
+		parts[index] = "0".to_owned();
+		parts.join(".")
+	} else {
+		instance_id.to_owned()
+	}
+}
+
 fn generate_banner_image(profile_name: &str) -> Result<String, String> {
 	// 248×58 matches the Stream Deck Neo infobar dimensions.
 	let width = 248u32;
@@ -103,8 +118,7 @@ impl Action for ProfileBannerAction {
 		send_arbitrary_json(serde_json::json!({
 			"event": "setInfobarImage",
 			"payload": {
-				"device": instance.device_id,
-				"position": settings.target_position,
+				"context": make_infobar_context(&instance.instance_id.to_string(), settings.target_position),
 				"image": banner_image,
 				"priority": 100u8,
 				"duration_ms": duration,
