@@ -230,13 +230,12 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 			// Check if we need to start a scroll task (prefer Component over plain Text)
 			let (scroll_width, text_to_scroll, component) = if let Some(comp) = crate::shared::INFOBAR_COMPONENTS.get(&(context.device.clone(), context.position)) {
 				let sw = crate::infobar_popover::get_scroll_width(&comp);
-				// We use a JSON representation of the component as the scroll key to detect changes.
-				let text = serde_json::to_string(&*comp).unwrap_or_default();
+				let text = crate::infobar_popover::scroll_task_key(&comp);
 				(sw, text, Some(comp.clone()))
 			} else if let Some(text) = crate::shared::INFOBAR_TEXT.get(&(context.device.clone(), context.position)) && !text.is_empty() {
 				let comp = crate::infobar_popover::InfobarComponent::Text { text: text.clone() };
 				let sw = crate::infobar_popover::get_scroll_width(&comp);
-				(sw, text.clone(), Some(comp))
+				(sw, crate::infobar_popover::scroll_task_key(&comp), Some(comp))
 			} else {
 				(0.0, String::new(), None)
 			};

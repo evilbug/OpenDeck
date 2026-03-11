@@ -141,6 +141,23 @@ pub fn get_scroll_width(component: &InfobarComponent) -> f32 {
 	}
 }
 
+/// Returns a stable key used to identify an active scroll task.
+///
+/// This intentionally excludes volatile fields (for example large artwork data
+/// URIs or rapidly changing numeric values) so equivalent scrolling text does
+/// not restart unnecessarily.
+pub fn scroll_task_key(component: &InfobarComponent) -> String {
+	match component {
+		InfobarComponent::Text { text } => format!("text:{}", text.trim()),
+		InfobarComponent::Pill { text } => format!("pill:{}", text.trim()),
+		InfobarComponent::ImageText { text, .. } => format!("image_text:{}", text.trim()),
+		InfobarComponent::ImageTitleSubtitle { title, subtitle, .. } => {
+			format!("image_title_subtitle:{}|{}", title.trim(), subtitle.trim())
+		}
+		InfobarComponent::ProgressBar { label, .. } => format!("progress:{}", label.trim()),
+	}
+}
+
 /// Draw a filled rounded rectangle.
 fn draw_rounded_rect(img: &mut RgbaImage, rect: Rect, radius: i32, color: Rgba<u8>) {
 	let x = rect.left();
