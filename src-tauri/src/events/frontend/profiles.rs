@@ -43,6 +43,8 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	let device_info = DEVICES.get(&device).unwrap().clone();
 	let infobar_segments = device_info.infobar;
+	let mut old_infobar_action_uuids = vec![None; infobar_segments as usize];
+	let mut new_infobar_action_uuids = vec![None; infobar_segments as usize];
 	let old_infobar_components: Vec<Option<String>> = (0..infobar_segments)
 		.map(|position| {
 			crate::shared::INFOBAR_COMPONENTS
@@ -55,6 +57,11 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	if selected_profile != id {
 		let old_profile = &locks.profile_stores.get_profile_store(&device_info, &selected_profile)?.value;
+		old_infobar_action_uuids = old_profile
+			.infobar
+			.iter()
+			.map(|slot| slot.as_ref().map(|instance| instance.action.uuid.clone()))
+			.collect();
 		for instance in old_profile
 			.keys
 			.iter()
@@ -69,6 +76,11 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	let store = locks.profile_stores.get_profile_store_mut(&device_info, &id).await?;
 	let new_profile = &store.value;
+	new_infobar_action_uuids = new_profile
+		.infobar
+		.iter()
+		.map(|slot| slot.as_ref().map(|instance| instance.action.uuid.clone()))
+		.collect();
 	for instance in new_profile
 		.keys
 		.iter()
@@ -83,6 +95,13 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 	locks.device_stores.set_selected_profile(&device, id.clone())?;
 
 	for position in 0..infobar_segments {
+		let preserve_existing_render = selected_profile != id
+			&& old_infobar_action_uuids.get(position as usize) == new_infobar_action_uuids.get(position as usize)
+			&& new_infobar_action_uuids.get(position as usize).and_then(|v| v.as_ref()).is_some();
+		if preserve_existing_render {
+			continue;
+		}
+
 		let context = crate::shared::Context {
 			device: device.clone(),
 			profile: id.clone(),
@@ -151,6 +170,12 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 		}
 
 		for position in 0..infobar_segments {
+			let preserve_existing_render = old_infobar_action_uuids.get(position as usize) == new_infobar_action_uuids.get(position as usize)
+				&& new_infobar_action_uuids.get(position as usize).and_then(|v| v.as_ref()).is_some();
+			if preserve_existing_render {
+				continue;
+			}
+
 			let unchanged_component = old_infobar_components.get(position as usize) == new_infobar_components.get(position as usize);
 			let needs_scroll_refresh = new_infobar_scrollable.get(position as usize).copied().unwrap_or(false);
 			if unchanged_component && !needs_scroll_refresh {
