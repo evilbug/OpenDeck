@@ -25,7 +25,7 @@ pub struct SetStatePayload {
 pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result<(), anyhow::Error> {
 	let mut locks = acquire_locks_mut().await;
 
-	let (context, text, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
+	let (context, text, image, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
 		if let Some(state) = event.payload.state {
 			if state as usize >= instance.states.len() {
 				return Err(anyhow::anyhow!("State index out of bounds ({} > {})", state, instance.states.len() - 1));
@@ -38,8 +38,9 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 		}
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
+		let image = instance.states[instance.current_state as usize].image.clone();
 		let is_infobar = instance.context.controller == "Infobar";
-		(context, text, is_infobar)
+		(context, text, image, is_infobar)
 	} else {
 		return Ok(());
 	};
@@ -50,8 +51,15 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
 		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+	} else {
+		// For non-infobar buttons, render the updated image
+		let ctx: crate::shared::Context = (&context).into();
+		if let Err(e) = crate::events::outbound::devices::update_image(ctx, Some(image)).await {
+			log::error!("Failed to update image for button: {}", e);
+		}
 	}
 
 	save_profile(&event.context.device, &mut locks).await?;
@@ -62,7 +70,7 @@ pub async fn set_title(event: ContextAndPayloadEvent<SetTitlePayload>) -> Result
 pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Result<(), anyhow::Error> {
 	let mut locks = acquire_locks_mut().await;
 
-	let (context, text, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
+	let (context, text, image, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
 		if let Some(image) = &event.payload.image {
 			if image.trim().is_empty() {
 				event.payload.image = None;
@@ -91,8 +99,9 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 		}
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
+		let image = instance.states[instance.current_state as usize].image.clone();
 		let is_infobar = instance.context.controller == "Infobar";
-		(context, text, is_infobar)
+		(context, text, image, is_infobar)
 	} else {
 		return Ok(());
 	};
@@ -103,8 +112,15 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
 		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+	} else {
+		// For non-infobar buttons, render the updated image
+		let ctx: crate::shared::Context = (&context).into();
+		if let Err(e) = crate::events::outbound::devices::update_image(ctx, Some(image)).await {
+			log::error!("Failed to update image for button: {}", e);
+		}
 	}
 
 	save_profile(&event.context.device, &mut locks).await?;
@@ -115,15 +131,16 @@ pub async fn set_image(mut event: ContextAndPayloadEvent<SetImagePayload>) -> Re
 pub async fn set_state(event: ContextAndPayloadEvent<SetStatePayload>) -> Result<(), anyhow::Error> {
 	let mut locks = acquire_locks_mut().await;
 
-	let (context, text, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
+	let (context, text, image, is_infobar) = if let Some(instance) = get_instance_mut(&event.context, &mut locks).await? {
 		if event.payload.state >= instance.states.len() as u16 {
 			return Ok(());
 		}
 		instance.current_state = event.payload.state;
 		let context = instance.context.clone();
 		let text = instance.states[instance.current_state as usize].text.clone();
+		let image = instance.states[instance.current_state as usize].image.clone();
 		let is_infobar = instance.context.controller == "Infobar";
-		(context, text, is_infobar)
+		(context, text, image, is_infobar)
 	} else {
 		return Ok(());
 	};
@@ -134,8 +151,15 @@ pub async fn set_state(event: ContextAndPayloadEvent<SetStatePayload>) -> Result
 		crate::shared::INFOBAR_COMPONENTS.remove(&(context.device.clone(), context.position));
 		crate::elgato::clear_infobar_component_scroll_state(&context.device, context.position);
 		crate::shared::INFOBAR_TEXT.insert((context.device.clone(), context.position), text);
+		crate::shared::INFOBAR_IMAGES.insert((context.device.clone(), context.position), image);
 		let ctx: crate::shared::Context = (&context).into();
 		let _ = crate::events::outbound::devices::update_image(ctx, None).await;
+	} else {
+		// For non-infobar buttons, render the updated image
+		let ctx: crate::shared::Context = (&context).into();
+		if let Err(e) = crate::events::outbound::devices::update_image(ctx, Some(image)).await {
+			log::error!("Failed to update image for button after set_state: {}", e);
+		}
 	}
 
 	save_profile(&event.context.device, &mut locks).await?;

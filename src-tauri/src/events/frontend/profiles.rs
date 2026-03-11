@@ -73,6 +73,24 @@ pub async fn set_selected_profile(device: String, id: String) -> Result<(), Erro
 
 	locks.device_stores.set_selected_profile(&device, id.clone())?;
 
+	let infobar_len = DEVICES.get(&device).map(|d| d.infobar).unwrap_or(0);
+	for position in 0..infobar_len {
+		let context = crate::shared::Context {
+			device: device.clone(),
+			profile: id.clone(),
+			controller: "Infobar".to_owned(),
+			position,
+		};
+		if let Ok(Some(instance)) = crate::store::profiles::get_slot_mut(&context, &mut locks).await {
+			let state = &instance.states[instance.current_state as usize];
+			crate::shared::INFOBAR_IMAGES.insert((device.clone(), position), state.image.clone());
+			crate::shared::INFOBAR_TEXT.insert((device.clone(), position), state.text.clone());
+		} else {
+			crate::shared::INFOBAR_IMAGES.remove(&(device.clone(), position));
+			crate::shared::INFOBAR_TEXT.remove(&(device.clone(), position));
+		}
+	}
+
 	let settings = crate::store::get_settings()?.value;
 	if selected_profile != id && settings.show_profile_switch_pill {
 		let infobar_segments = DEVICES.get(&device).map(|d| d.infobar).unwrap_or(0);

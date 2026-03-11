@@ -267,6 +267,15 @@ pub struct Locks<'a> {
 	pub profile_stores: RwLockReadGuard<'a, ProfileStores>,
 }
 
+impl<'a> From<LocksMut<'a>> for Locks<'a> {
+	fn from(locks: LocksMut<'a>) -> Self {
+		Self {
+			device_stores: RwLockWriteGuard::downgrade(locks.device_stores),
+			profile_stores: RwLockWriteGuard::downgrade(locks.profile_stores),
+		}
+	}
+}
+
 pub async fn acquire_locks() -> Locks<'static> {
 	let device_stores = DEVICE_STORES.read().await;
 	let profile_stores = PROFILE_STORES.read().await;

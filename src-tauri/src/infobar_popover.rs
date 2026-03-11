@@ -18,8 +18,6 @@ const BG: Rgba<u8> = Rgba([0, 0, 0, 0]);
 const FG: Rgba<u8> = Rgba([255, 255, 255, 255]);
 /// Steel-blue accent used for the progress bar fill.
 const ACCENT: Rgba<u8> = Rgba([70, 130, 180, 255]);
-/// Dark-grey used for the progress bar track.
-const TRACK: Rgba<u8> = Rgba([60, 60, 60, 255]);
 
 /// A component descriptor that plugins send to the backend to request a
 /// rendered popover image for the infobar LCD.
@@ -132,13 +130,51 @@ pub fn get_scroll_width(component: &InfobarComponent) -> f32 {
 			title_overflow.max(subtitle_overflow)
 		}
 		InfobarComponent::ProgressBar { label, value, .. } => {
-			let scale = PxScale { x: 22.0, y: 22.0 };
+			let scale = PxScale { x: 20.0, y: 20.0 };
 			let val_text = format!("{value:.0}");
 			let val_w = text_width(&font, scale, &val_text);
-			let val_x = ((WIDTH as f32) - 6.0 - val_w).max(0.0);
-			let label_max = val_x - 6.0 - 8.0;
+			let val_x = ((WIDTH as f32) - 10.0 - val_w).max(0.0);
+			let label_max = val_x - 10.0 - 8.0;
 			let full_w = text_width(&font, scale, label);
 			(full_w - label_max).max(0.0)
+		}
+	}
+}
+
+/// Draw a filled rounded rectangle.
+fn draw_rounded_rect(img: &mut RgbaImage, rect: Rect, radius: i32, color: Rgba<u8>) {
+	let x = rect.left();
+	let y = rect.top();
+	let w = rect.width() as i32;
+	let h = rect.height() as i32;
+	let radius = radius.min(w / 2).min(h / 2).max(0);
+
+	if radius <= 0 {
+		draw_filled_rect_mut(img, rect, color);
+		return;
+	}
+
+	let mid_w = (w - radius * 2).max(1) as u32;
+	let mid_h = (h - radius * 2).max(1) as u32;
+
+	// Center blocks
+	draw_filled_rect_mut(img, Rect::at(x + radius, y).of_size(mid_w, h as u32), color);
+	draw_filled_rect_mut(img, Rect::at(x, y + radius).of_size(w as u32, mid_h), color);
+
+	// Corners
+	for cy in [y + radius, y + h - radius - 1] {
+		for cx in [x + radius, x + w - radius - 1] {
+			for dy in -radius..=radius {
+				for dx in -radius..=radius {
+					if dx * dx + dy * dy <= radius * radius {
+						let px = cx + dx;
+						let py = cy + dy;
+						if px >= 0 && py >= 0 && px < WIDTH as i32 && py < HEIGHT as i32 {
+							img.put_pixel(px as u32, py as u32, color);
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -157,6 +193,7 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 	}
 
 	let font = FontRef::try_from_slice(FONT_DATA)?;
+	let pill_bg = Rgba([55, 55, 65, 255]);
 
 	match component {
 		InfobarComponent::Text { text } => {
@@ -171,7 +208,6 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 		}
 
 		InfobarComponent::Pill { text } => {
-			let pill_bg = Rgba([55, 55, 65, 255]);
 			let scale = PxScale { x: 24.0, y: 24.0 };
 			let horizontal_padding = 10i32;
 			let vertical_padding = 6i32;
@@ -187,29 +223,11 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 			};
 
 			let h = (scale.y as i32) + vertical_padding * 2; // ~36-38px
-			let radius = (h / 2).min(w / 2).max(1);
+			let radius = h / 2;
 			let x = (WIDTH as i32 - w) / 2;
 			let y = (HEIGHT as i32 - h) / 2;
 
-			let mid_w = (w - radius * 2).max(1) as u32;
-			let mid_h = (h - radius * 2).max(1) as u32;
-			draw_filled_rect_mut(&mut img, Rect::at(x + radius, y).of_size(mid_w, h as u32), pill_bg);
-			draw_filled_rect_mut(&mut img, Rect::at(x, y + radius).of_size(w as u32, mid_h), pill_bg);
-			for cy in [y + radius, y + h - radius - 1] {
-				for cx in [x + radius, x + w - radius - 1] {
-					for dy in -radius..=radius {
-						for dx in -radius..=radius {
-							if dx * dx + dy * dy <= radius * radius {
-								let px = cx + dx;
-								let py = cy + dy;
-								if px >= 0 && py >= 0 && px < WIDTH as i32 && py < HEIGHT as i32 {
-									img.put_pixel(px as u32, py as u32, pill_bg);
-								}
-							}
-						}
-					}
-				}
-			}
+			draw_rounded_rect(&mut img, Rect::at(x, y).of_size(w as u32, h as u32), radius, pill_bg);
 
 			if let Some(off) = offset {
 				// Clip the text to the pill's interior width.
@@ -263,9 +281,7 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 				let raw = image_data.split_once(',').map(|(_, b)| b).unwrap_or(image_data.as_str());
 				let bytes = general_purpose::STANDARD.decode(raw)?;
 				let dynamic = image::load_from_memory(&bytes)?;
-				let processed = dynamic
-					.resize_exact(50, 50, image::imageops::FilterType::Lanczos3)
-					.into_rgba8();
+				let processed = dynamic.resize_exact(50, 50, image::imageops::FilterType::Lanczos3).into_rgba8();
 				THUMBNAIL_CACHE.insert(image_data.clone(), processed.clone());
 				processed
 			};
@@ -276,14 +292,18 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 			let title_scale = PxScale { x: 22.0, y: 22.0 };
 			let subtitle_scale = PxScale { x: 18.0, y: 18.0 };
 			let subtitle_fg = Rgba([170, 170, 170, 255]);
+			let title_overflow = (text_width(&font, title_scale, title) - max_text_width).max(0.0);
+			let subtitle_overflow = (text_width(&font, subtitle_scale, subtitle) - max_text_width).max(0.0);
 
 			if let Some(off) = offset {
+				let title_offset = off.min(title_overflow);
+				let subtitle_offset = off.min(subtitle_overflow);
 				let mut title_img = RgbaImage::new(max_text_width as u32, title_scale.y as u32 + 8);
-				draw_text_mut(&mut title_img, FG, -(off as i32), 0, title_scale, &font, title);
+				draw_text_mut(&mut title_img, FG, -(title_offset as i32), 0, title_scale, &font, title);
 				image::imageops::overlay(&mut img, &title_img, text_x as i64, 5);
 
 				let mut subtitle_img = RgbaImage::new(max_text_width as u32, subtitle_scale.y as u32 + 8);
-				draw_text_mut(&mut subtitle_img, subtitle_fg, -(off as i32), 0, subtitle_scale, &font, subtitle);
+				draw_text_mut(&mut subtitle_img, subtitle_fg, -(subtitle_offset as i32), 0, subtitle_scale, &font, subtitle);
 				image::imageops::overlay(&mut img, &subtitle_img, text_x as i64, 33);
 			} else {
 				let display_title = truncate(&font, title_scale, title, max_text_width);
@@ -294,32 +314,41 @@ pub fn render_component_at(component: &InfobarComponent, offset: Option<f32>) ->
 		}
 
 		InfobarComponent::ProgressBar { label, value, min, max } => {
-			let scale = PxScale { x: 22.0, y: 22.0 };
+			draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(WIDTH, HEIGHT), Rgba([0, 0, 0, 128]));
+
+			let scale = PxScale { x: 20.0, y: 20.0 };
 			let val_text = format!("{value:.0}");
 			let val_w = text_width(&font, scale, &val_text);
-			let val_x = ((WIDTH as f32) - 6.0 - val_w).max(0.0) as i32;
-			draw_text_mut(&mut img, FG, val_x, 3, scale, &font, &val_text);
+			let val_x = ((WIDTH as f32) - 10.0 - val_w).max(0.0) as i32;
+			draw_text_mut(&mut img, FG, val_x, 4, scale, &font, &val_text);
 
-			let label_max = (val_x as f32) - 6.0 - 8.0;
+			let label_max = (val_x as f32) - 10.0 - 8.0;
 			if let Some(off) = offset {
 				let mut text_img = RgbaImage::new(label_max as u32, scale.y as u32 + 8);
 				draw_text_mut(&mut text_img, FG, -(off as i32), 0, scale, &font, label);
-				image::imageops::overlay(&mut img, &text_img, 6, 3);
+				image::imageops::overlay(&mut img, &text_img, 10, 4);
 			} else {
 				let label_display = truncate(&font, scale, label, label_max.max(0.0));
-				draw_text_mut(&mut img, FG, 6, 3, scale, &font, &label_display);
+				draw_text_mut(&mut img, FG, 10, 4, scale, &font, &label_display);
 			}
 
-			let bar_x = 6i32;
+			let bar_x = 10i32;
 			let bar_y = 32i32;
-			let bar_w = WIDTH - 12;
-			let bar_h = 18u32;
-			draw_filled_rect_mut(&mut img, Rect::at(bar_x, bar_y).of_size(bar_w, bar_h), TRACK);
+			let bar_w = WIDTH - 20;
+			let bar_h = 16u32;
+			let radius = (bar_h / 2) as i32;
+			
+			// Use the same background as the Pill for the track
+			draw_rounded_rect(&mut img, Rect::at(bar_x, bar_y).of_size(bar_w, bar_h), radius, pill_bg);
+			
 			let range = (max - min).abs().max(1.0);
 			let ratio = ((value - min) / range).clamp(0.0, 1.0);
 			let fill_w = ((bar_w as f32) * ratio) as u32;
-			if fill_w > 0 {
-				draw_filled_rect_mut(&mut img, Rect::at(bar_x, bar_y).of_size(fill_w, bar_h), ACCENT);
+			if fill_w > (radius as u32) {
+				draw_rounded_rect(&mut img, Rect::at(bar_x, bar_y).of_size(fill_w, bar_h), radius, ACCENT);
+			} else if fill_w > 0 {
+				// For very small values, just draw a small circle (radius*2 width)
+				draw_rounded_rect(&mut img, Rect::at(bar_x, bar_y).of_size((radius * 2) as u32, bar_h), radius, ACCENT);
 			}
 		}
 	}
