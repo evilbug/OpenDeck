@@ -64,26 +64,6 @@ pub async fn update_image(context: crate::shared::Context, image: Option<String>
 	Ok(())
 }
 
-pub async fn clear_screen(device: String) -> Result<(), anyhow::Error> {
-	if let Some(plugin) = DEVICE_NAMESPACES.read().await.get(&device[..2]) {
-		send_to_plugin(
-			plugin,
-			&SetImageEvent {
-				event: "setImage",
-				device,
-				controller: None,
-				position: None,
-				image: None,
-			},
-		)
-		.await?;
-	} else if device.starts_with("sd-") {
-		crate::elgato::clear_screen(&device).await?;
-	}
-
-	Ok(())
-}
-
 #[derive(Serialize)]
 struct SetBrightnessEvent {
 	event: &'static str,

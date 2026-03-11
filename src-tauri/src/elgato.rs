@@ -2,6 +2,7 @@ use dashmap::DashMap;
 use crate::events::outbound::{encoder, infobar, keypad};
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -18,6 +19,8 @@ static ELGATO_DEVICES: LazyLock<RwLock<HashMap<String, AsyncStreamDeck>>> = Lazy
 static HIDAPI: LazyLock<RwLock<Option<Arc<hidapi::HidApi>>>> = LazyLock::new(|| RwLock::new(None));
 
 static SCROLL_TASKS: LazyLock<DashMap<(String, u8), String>> = LazyLock::new(DashMap::new);
+static SCROLL_GENERATIONS: LazyLock<DashMap<(String, u8), u64>> = LazyLock::new(DashMap::new);
+static SCROLL_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 const INFOBAR_SAFE_PADDING: i64 = 4;
 
 fn apply_infobar_safe_padding(img: image::RgbaImage, w: u32, h: u32) -> image::RgbaImage {
@@ -207,6 +210,7 @@ fn compose_infobar_image(device_id: &str, position: u8, w: u32, h: u32, text_off
 
 pub fn clear_infobar_component_scroll_state(device_id: &str, position: u8) {
 	SCROLL_TASKS.remove(&(device_id.to_owned(), position));
+	SCROLL_GENERATIONS.remove(&(device_id.to_owned(), position));
 }
 
 pub async fn update_image(context: &crate::shared::Context, image: Option<&str>) -> Result<(), anyhow::Error> {
@@ -242,9 +246,15 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 
 			let mut is_same_scroll_active = false;
 			if scroll_width > 0.0 && let Some(_component) = component {
-				let current_scroll_text = SCROLL_TASKS.get(&(context.device.clone(), context.position)).map(|v| v.clone());
-				if current_scroll_text.as_ref() != Some(&text_to_scroll) {
-					SCROLL_TASKS.insert((context.device.clone(), context.position), text_to_scroll.clone());
+				let scroll_slot = (context.device.clone(), context.position);
+				let current_scroll_text = SCROLL_TASKS.get(&scroll_slot).map(|v| v.clone());
+				let has_active_generation = SCROLL_GENERATIONS.get(&scroll_slot).is_some();
+				let same_scroll_key = current_scroll_text.as_ref() == Some(&text_to_scroll);
+
+				if !(same_scroll_key && has_active_generation) {
+					let scroll_generation = SCROLL_GENERATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+					SCROLL_TASKS.insert(scroll_slot.clone(), text_to_scroll.clone());
+					SCROLL_GENERATIONS.insert(scroll_slot, scroll_generation);
 					let ctx = context.clone();
 					let scroll_key = text_to_scroll.clone();
 					tokio::spawn(async move {
@@ -252,7 +262,9 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 						let step_size = 4.0f32;
 						let steps = (scroll_width / step_size).ceil() as u32;
 						for step in 1..=steps {
-							if SCROLL_TASKS.get(&(ctx.device.clone(), ctx.position)).as_deref() != Some(&scroll_key) {
+							if SCROLL_TASKS.get(&(ctx.device.clone(), ctx.position)).as_deref() != Some(&scroll_key)
+								|| SCROLL_GENERATIONS.get(&(ctx.device.clone(), ctx.position)).map(|v| *v) != Some(scroll_generation)
+							{
 								return;
 							}
 
@@ -271,7 +283,9 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 							tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 						}
 
-						if SCROLL_TASKS.get(&(ctx.device.clone(), ctx.position)).as_deref() == Some(&scroll_key) {
+						if SCROLL_TASKS.get(&(ctx.device.clone(), ctx.position)).as_deref() == Some(&scroll_key)
+							&& SCROLL_GENERATIONS.get(&(ctx.device.clone(), ctx.position)).map(|v| *v) == Some(scroll_generation)
+						{
 							tokio::time::sleep(std::time::Duration::from_millis(400)).await;
 							let reset_img = compose_infobar_image(&ctx.device, ctx.position, w, h, None);
 							if let Some(device) = ELGATO_DEVICES.read().await.get(&ctx.device) {
@@ -285,6 +299,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 								let _ = device.flush().await;
 							}
 							SCROLL_TASKS.remove(&(ctx.device.clone(), ctx.position));
+							SCROLL_GENERATIONS.remove(&(ctx.device.clone(), ctx.position));
 						}
 					});
 				} else {
@@ -292,6 +307,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 				}
 			} else {
 				SCROLL_TASKS.remove(&(context.device.clone(), context.position));
+				SCROLL_GENERATIONS.remove(&(context.device.clone(), context.position));
 			}
 
 			if !is_same_scroll_active {
@@ -348,25 +364,6 @@ async fn clear_all_touchpoints(device: &AsyncStreamDeck) {
 	for i in 0..device.kind().touchpoint_count() {
 		let _ = device.set_touchpoint_color(i, 0, 0, 0).await;
 	}
-}
-
-pub async fn clear_screen(id: &str) -> Result<(), anyhow::Error> {
-	crate::infobar_overlay::clear_device_overlays(id);
-	if let Some(device) = ELGATO_DEVICES.read().await.get(id) {
-		device.clear_all_button_images().await?;
-		if device.kind() == Kind::Plus {
-			device
-				.write_lcd_fill(&convert_image_with_format_async(device.kind().lcd_image_format().unwrap(), image::DynamicImage::new_rgb8(800, 100))?)
-				.await?;
-		} else if device.kind() == Kind::Neo {
-			device
-				.write_lcd_fill(&convert_image_with_format_async(device.kind().lcd_image_format().unwrap(), image::DynamicImage::new_rgb8(248, 58))?)
-				.await?;
-		}
-		clear_all_touchpoints(device).await;
-		device.flush().await?;
-	}
-	Ok(())
 }
 
 pub async fn set_brightness(brightness: u8) {
