@@ -54,7 +54,16 @@
 		if (event.dataTransfer?.types.includes("action")) event.dataTransfer.dropEffect = "copy";
 	}
 
-	async function handleDrop({ dataTransfer }: DragEvent) {
+	function setParentChildren(nextChildren: ActionInstance[]) {
+		const slot = parentInstance();
+		if (!slot) return;
+		slot.children = nextChildren;
+		profile = profile;
+	}
+
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		const { dataTransfer } = event;
 		if (dataTransfer?.getData("action")) {
 			let action = JSON.parse(dataTransfer?.getData("action"));
 			if (
@@ -68,20 +77,17 @@
 				return;
 			}
 			let response: ActionInstance | null = await invoke("create_instance", { context: $inspectedParentAction, action });
-			if (response && parentInstance()) {
-				parentInstance()!.children = [...children, response];
-				profile = profile;
+			if (response) {
+				setParentChildren([...(parentInstance()?.children ?? []), response]);
 			}
 		}
 	}
 
 	async function removeInstance(index: number) {
 		await invoke("remove_instance", { context: children[index].context });
-		children.splice(index, 1);
-		if (parentInstance()) {
-			parentInstance()!.children = children;
-			profile = profile;
-		}
+		const nextChildren = [...children];
+		nextChildren.splice(index, 1);
+		setParentChildren(nextChildren);
 	}
 
 	async function moveInstance(index: number, direction: -1 | 1) {

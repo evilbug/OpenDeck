@@ -241,6 +241,7 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 				(0.0, String::new(), None)
 			};
 
+			let mut is_same_scroll_active = false;
 			if scroll_width > 0.0 && let Some(_component) = component {
 				let current_scroll_text = SCROLL_TASKS.get(&(context.device.clone(), context.position)).map(|v| v.clone());
 				if current_scroll_text.as_ref() != Some(&text_to_scroll) {
@@ -287,17 +288,21 @@ pub async fn update_image(context: &crate::shared::Context, image: Option<&str>)
 							SCROLL_TASKS.remove(&(ctx.device.clone(), ctx.position));
 						}
 					});
+				} else {
+					is_same_scroll_active = true;
 				}
 			} else {
 				SCROLL_TASKS.remove(&(context.device.clone(), context.position));
 			}
 
-			if kind == Kind::Plus {
-				device.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(final_img))?).await?;
-			} else if kind == Kind::Neo {
-				let format = kind.lcd_image_format().unwrap();
-				let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(final_img))?;
-				device.write_lcd_fill(&data).await?;
+			if !is_same_scroll_active {
+				if kind == Kind::Plus {
+					device.write_lcd(context.position as u16 * 200, 0, &ImageRect::from_image_async(image::DynamicImage::ImageRgba8(final_img))?).await?;
+				} else if kind == Kind::Neo {
+					let format = kind.lcd_image_format().unwrap();
+					let data = convert_image_with_format_async(format, image::DynamicImage::ImageRgba8(final_img))?;
+					device.write_lcd_fill(&data).await?;
+				}
 			}
 		} else if let Some(image) = image {
 			let dynamic = load_image_raw(image);

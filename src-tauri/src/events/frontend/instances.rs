@@ -106,6 +106,15 @@ fn renumber_children(parent_context: &Context, children: &mut [ActionInstance]) 
 	}
 }
 
+async fn refresh_children_lifecycle(old_children: &[ActionInstance], new_children: &[ActionInstance]) {
+	for child in old_children {
+		let _ = crate::events::outbound::will_appear::will_disappear(child, false).await;
+	}
+	for child in new_children {
+		let _ = crate::events::outbound::will_appear::will_appear(child).await;
+	}
+}
+
 #[command]
 pub async fn move_instance(source: Context, destination: Context, retain: bool) -> Result<Option<ActionInstance>, Error> {
 	if source.controller != destination.controller {
@@ -178,23 +187,28 @@ pub async fn move_instance(source: Context, destination: Context, retain: bool) 
 #[command]
 pub async fn reorder_child_instance(context: Context, from: usize, to: usize) -> Result<Option<ActionInstance>, Error> {
 	let mut locks = acquire_locks_mut().await;
-	let parent = {
+	let (parent, old_children, new_children) = {
 		let slot = get_slot_mut(&context, &mut locks).await?;
 		let Some(parent) = slot else {
 			return Ok(None);
 		};
-		let Some(children) = &mut parent.children else {
-			return Ok(None);
-		};
-		if from >= children.len() || to >= children.len() {
-			return Ok(None);
-		}
+		let (old_children, new_children) = {
+			let Some(children) = &mut parent.children else {
+				return Ok(None);
+			};
+			if from >= children.len() || to >= children.len() {
+				return Ok(None);
+			}
+			let old_children = children.clone();
 
-		let child = children.remove(from);
-		children.insert(to, child);
-		renumber_children(&context, children);
-		parent.clone()
+			let child = children.remove(from);
+			children.insert(to, child);
+			renumber_children(&context, children);
+			(old_children, children.clone())
+		};
+		(parent.clone(), old_children, new_children)
 	};
+	refresh_children_lifecycle(&old_children, &new_children).await;
 	let _ = sync_infobar_stack_and_emit(crate::APP_HANDLE.get().unwrap(), context.clone(), &mut locks).await;
 
 	save_profile(&context.device, &mut locks).await?;
@@ -220,13 +234,26 @@ pub async fn remove_instance(context: ActionContext) -> Result<(), Error> {
 		*slot = None;
 	} else {
 		let children = instance.children.as_mut().unwrap();
+		let old_children = children.clone();
+		let mut removed_index = None;
 		for (index, instance) in children.iter().enumerate() {
 			if instance.context == context {
 				let _ = crate::events::outbound::will_appear::will_disappear(instance, true).await;
 				let _ = remove_dir_all(instance_images_dir(&instance.context)).await;
 				children.remove(index);
+				removed_index = Some(index);
 				renumber_children(&(&context).into(), children);
 				break;
+			}
+		}
+		if let Some(removed_index) = removed_index {
+			let shifted_old = &old_children[(removed_index + 1).min(old_children.len())..];
+			let shifted_new = &children[removed_index.min(children.len())..];
+			for (old_child, new_child) in shifted_old.iter().zip(shifted_new.iter()) {
+				if old_child.context != new_child.context {
+					let _ = crate::events::outbound::will_appear::will_disappear(old_child, false).await;
+					let _ = crate::events::outbound::will_appear::will_appear(new_child).await;
+				}
 			}
 		}
 		if instance.action.uuid == "opendeck.toggleaction" {
