@@ -267,6 +267,15 @@ pub struct Locks<'a> {
 	pub profile_stores: RwLockReadGuard<'a, ProfileStores>,
 }
 
+impl<'a> From<LocksMut<'a>> for Locks<'a> {
+	fn from(locks: LocksMut<'a>) -> Self {
+		Self {
+			device_stores: RwLockWriteGuard::downgrade(locks.device_stores),
+			profile_stores: RwLockWriteGuard::downgrade(locks.profile_stores),
+		}
+	}
+}
+
 pub async fn acquire_locks() -> Locks<'static> {
 	let device_stores = DEVICE_STORES.read().await;
 	let profile_stores = PROFILE_STORES.read().await;
@@ -302,9 +311,21 @@ pub async fn get_slot_mut<'a>(context: &crate::shared::Context, locks: &'a mut L
 	let store = locks.profile_stores.get_profile_store_mut(&device, &context.profile).await?;
 
 	let configured = match &context.controller[..] {
-		"Encoder" => store.value.sliders.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Encoder", context.position))?,
-		"Infobar" => store.value.infobar.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Infobar", context.position))?,
-		_ => store.value.keys.get_mut(context.position as usize).ok_or_else(|| anyhow!("index out of bounds: {} for Keypad", context.position))?,
+		"Encoder" => store
+			.value
+			.sliders
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Encoder", context.position))?,
+		"Infobar" => store
+			.value
+			.infobar
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Infobar", context.position))?,
+		_ => store
+			.value
+			.keys
+			.get_mut(context.position as usize)
+			.ok_or_else(|| anyhow!("index out of bounds: {} for Keypad", context.position))?,
 	};
 
 	Ok(configured)

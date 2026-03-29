@@ -55,7 +55,7 @@
 		if (event instanceof MouseEvent && event.ctrlKey) return;
 		$openContextMenu = null;
 		if (!slot) return;
-		if (slot.action.uuid == "opendeck.multiaction" || slot.action.uuid == "opendeck.toggleaction") {
+		if (["opendeck.multiaction", "opendeck.toggleaction", "opendeck.infobarstack"].includes(slot.action.uuid)) {
 			inspectedParentAction.set(context);
 		} else {
 			inspectedInstance.set(slot.context);

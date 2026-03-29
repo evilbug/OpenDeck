@@ -1,5 +1,8 @@
 pub(crate) mod devices;
+mod infobar;
+mod infobar_stack;
 mod misc;
+pub(crate) mod popover;
 mod property_inspector;
 mod settings;
 mod states;
@@ -65,6 +68,11 @@ pub enum InboundEventType {
 	SendToPlugin(ContextAndPayloadEvent<serde_json::Value>),
 	SwitchProfile(misc::SwitchProfileEvent),
 	DeviceBrightness(misc::DeviceBrightnessEvent),
+	SetInfobarComponent(PayloadEvent<infobar::SetInfobarComponentPayload>),
+	SetInfobarImage(PayloadEvent<infobar::SetInfobarImagePayload>),
+	ClearInfobarOverlay(PayloadEvent<infobar::ClearInfobarOverlayPayload>),
+	ShowInfobarPopover(PayloadEvent<popover::ShowInfobarPopoverPayload>),
+	SetInfobarItemVisibility(ContextAndPayloadEvent<infobar_stack::SetInfobarItemVisibilityPayload>),
 }
 
 pub async fn process_incoming_message(data: Result<Message, Error>, uuid: &str, skip_auth: bool) {
@@ -84,6 +92,11 @@ pub async fn process_incoming_message(data: Result<Message, Error>, uuid: &str, 
 				InboundEventType::ShowAlert(event) => Some(&event.context),
 				InboundEventType::ShowOk(event) => Some(&event.context),
 				InboundEventType::SendToPropertyInspector(event) => Some(&event.context),
+				InboundEventType::SetInfobarItemVisibility(event) => Some(&event.context),
+				InboundEventType::SetInfobarComponent(event) => Some(&event.payload.context),
+				InboundEventType::SetInfobarImage(event) => Some(&event.payload.context),
+				InboundEventType::ClearInfobarOverlay(event) => Some(&event.payload.context),
+				InboundEventType::ShowInfobarPopover(event) => Some(&event.payload.context),
 				_ => None,
 			} {
 				if let Ok(Some(instance)) = get_instance(context, &acquire_locks().await).await {
@@ -133,6 +146,11 @@ pub async fn process_incoming_message(data: Result<Message, Error>, uuid: &str, 
 			InboundEventType::SendToPlugin(_) => Ok(()),
 			InboundEventType::SwitchProfile(event) => misc::switch_profile(event).await,
 			InboundEventType::DeviceBrightness(event) => misc::device_brightness(event).await,
+			InboundEventType::SetInfobarComponent(event) => infobar::set_infobar_component(event).await,
+			InboundEventType::SetInfobarImage(event) => infobar::set_infobar_image(event).await,
+			InboundEventType::ClearInfobarOverlay(event) => infobar::clear_infobar_overlay(event).await,
+			InboundEventType::ShowInfobarPopover(event) => popover::show_infobar_popover(event).await,
+			InboundEventType::SetInfobarItemVisibility(event) => infobar_stack::set_infobar_item_visibility(event).await,
 		} && !error.to_string().contains("closed connection")
 		{
 			warn!("Failed to process incoming event from plugin: {}", error);

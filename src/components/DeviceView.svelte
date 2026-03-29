@@ -39,10 +39,7 @@
 			if (array[position]) {
 				return;
 			}
-			console.log("drop context:", context);
-			console.log("drop action:", action);
 			let response = (await invoke("create_instance", { context, action })) as any;
-			console.log("create response:", response);
 			array[position] = response;
 			profile = profile;
 		} else if (dataTransfer?.getData("controller")) {

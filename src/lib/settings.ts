@@ -6,6 +6,7 @@ export type Settings = {
 	background: boolean;
 	autolaunch: boolean;
 	updatecheck: boolean;
+	show_profile_switch_pill: boolean;
 	statistics: boolean;
 	separatewine: boolean;
 	developer: boolean;
@@ -21,6 +22,8 @@ export const localisations: Writable<{ [plugin: string]: any } | null> = writabl
 settings.subscribe(async (value) => {
 	if (value) {
 		await invoke("set_settings", { settings: value });
-		localisations.set(await invoke("get_localisations", { locale: value.language }));
+		localisations.set(
+			await invoke("get_localisations", { locale: value.language }),
+		);
 	}
 });
